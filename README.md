@@ -25,7 +25,7 @@ assemble URIs from their various components.
 
 This crate has been forked from [uris](https://crates.io/crates/uris). Thanks to
 Richard Walters for the [original implementation](https://crates.io/crates/uris)
-and Richard Walters for his improvements.
+and Martin Fischer for his improvements.
 
 ## License
 
