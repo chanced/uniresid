@@ -1,0 +1,21 @@
+[package]
+name = "uniresid"
+version = "0.1.1"
+description = "Implementation of RFC 3986 - Uniform Resource Identifier (URI)"
+authors = [
+    "Chance Dinkins <chanceusc@gmail.com>",
+    "Richard Walters <rwalters@digitalstirling.com>",
+    "Martin Fischer <martin@push-f.com>",
+]
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+categories = ["parser-implementations", "web-programming"]
+keywords = ["uri", "parser"]
+repository = "https://github.com/chanced/urident"
+exclude = ["notes.md"]
+
+[dependencies]
+named_tuple = "0.1"
+once_cell = "1.5"
+thiserror = "1.0"
