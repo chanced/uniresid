@@ -43,7 +43,7 @@ use super::{
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Authority {
     user_info: Option<Vec<u8>>,
     host: Vec<u8>,
@@ -52,13 +52,13 @@ pub struct Authority {
 
 impl Authority {
     /// Borrow the host name part of the Authority.
-    #[must_use = "why u no use host return value?"]
+    #[must_use = "host not used"]
     pub fn host(&self) -> &[u8] {
         &self.host
     }
 
     /// Borrow the port number part of the Authority.
-    #[must_use = "why did you get the port number and then throw it away?"]
+    #[must_use = "port not used"]
     pub fn port(&self) -> Option<u16> {
         self.port
     }
@@ -99,7 +99,6 @@ impl Authority {
     /// There are many ways to screw up the Authority part of URI string, and
     /// this function will let you know what's up by returning a variant of the
     /// [`Error`](enum.Error.html) type.
-    #[must_use = "you parsed it; don't you want the results?"]
     pub fn parse<T>(authority_string: T) -> Result<Self, Error>
     where
         T: AsRef<str>,
@@ -119,7 +118,7 @@ impl Authority {
                 Some(decode_element(
                     &authority[0..delimiter],
                     &USER_INFO_NOT_PCT_ENCODED,
-                    Context::user_info,
+                    Context::UserInfo,
                 )?),
                 &authority[delimiter + 1..],
             ),

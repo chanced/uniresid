@@ -26,7 +26,7 @@ use super::{
 /// Although the `Uri` type provides [`user_info`], [`host`], and [`port`]
 /// methods for convenience, `Uri` holds these components through the
 /// [`Authority` type], which can be accessed via [`authority`] and
-/// [`set_authority`].  To set or change the user_info, host, or port of a
+/// [`set_authority`].  To set or change the `user_info`, host, or port of a
 /// `Uri`, construct a new `Authority` value and set it in the `Uri` with
 /// [`set_authority`].
 ///
@@ -88,7 +88,7 @@ use super::{
 /// [slice]: https://doc.rust-lang.org/std/primitive.slice.html
 /// [`TryFrom::try_from`]: https://doc.rust-lang.org/std/convert/trait.TryFrom.html#tymethod.try_from
 /// [`TryInto::try_into`]: https://doc.rust-lang.org/std/convert/trait.TryInto.html#tymethod.try_into
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, Hash, PartialEq, Eq)]
 pub struct Uri {
     scheme: Option<String>,
     authority: Option<Authority>,
@@ -99,7 +99,7 @@ pub struct Uri {
 
 impl Uri {
     /// Borrow the authority (if any) of the URI.
-    #[must_use = "respect mah authoritah"]
+    #[must_use = "authority not used"]
     pub fn authority(&self) -> Option<&Authority> {
         self.authority.as_ref()
     }
@@ -142,7 +142,7 @@ impl Uri {
 
     /// Determines if the URI contains a relative path rather than an absolute
     /// path.
-    #[must_use = "please use the return value kthxbye"]
+    #[must_use]
     pub fn contains_relative_path(&self) -> bool {
         !Self::is_path_absolute(&self.path)
     }
@@ -159,7 +159,7 @@ impl Uri {
     }
 
     /// Borrow the fragment (if any) of the URI.
-    #[must_use = "A query and a fragment walked into a bar.  Too bad you're ignoring the fragment because it's actually a funny joke."]
+    #[must_use]
     pub fn fragment(&self) -> Option<&[u8]> {
         self.fragment.as_deref()
     }
@@ -172,7 +172,6 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    #[must_use = "use the fragment return value silly programmer"]
     pub fn fragment_to_string(&self) -> Result<Option<String>, Error> {
         self.fragment()
             .map(|fragment| String::from_utf8(fragment.to_vec()).map_err(Into::into))
@@ -180,7 +179,7 @@ impl Uri {
     }
 
     /// Borrow the host portion of the Authority (if any) of the URI.
-    #[must_use = "why u no use host return value?"]
+    #[must_use]
     pub fn host(&self) -> Option<&[u8]> {
         self.authority.as_ref().map(Authority::host)
     }
@@ -193,7 +192,6 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    #[must_use = "I made that host field into a string for you; don't you want it?"]
     pub fn host_to_string(&self) -> Result<Option<String>, Error> {
         self.host()
             .map(|host| String::from_utf8(host.to_vec()).map_err(Into::into))
@@ -211,7 +209,7 @@ impl Uri {
     /// defined in [RFC 3986 section
     /// 4.2](https://tools.ietf.org/html/rfc3986#section-4.2).  A relative
     /// reference has no scheme, but may still have an authority.
-    #[must_use = "why would you call an accessor method and not use the return value, silly human"]
+    #[must_use]
     pub fn is_relative_reference(&self) -> bool {
         self.scheme.is_none()
     }
@@ -303,7 +301,7 @@ impl Uri {
         T: AsRef<str>,
     {
         let (scheme, rest) = Self::parse_scheme(uri_string.as_ref())?;
-        let path_end = rest.find(&['?', '#'][..]).unwrap_or_else(|| rest.len());
+        let path_end = rest.find(&['?', '#'][..]).unwrap_or(rest.len());
         let authority_and_path_string = &rest[0..path_end];
         let query_and_or_fragment = &rest[path_end..];
         let (authority, path) =
@@ -412,7 +410,7 @@ impl Uri {
     /// "/"         -> [""]
     /// ""          -> []
     /// ```
-    #[must_use = "you called path() to get the path, so why you no use?"]
+    #[must_use]
     pub fn path(&self) -> &Vec<Vec<u8>> {
         &self.path
     }
@@ -426,7 +424,6 @@ impl Uri {
     /// [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    #[must_use = "we went through all that trouble to put the path into a string, and you don't want it?"]
     pub fn path_to_string(&self) -> Result<String, Error> {
         match &*self.path {
             [segment] if segment.is_empty() => Ok("/".to_string()),
@@ -435,13 +432,12 @@ impl Uri {
     }
 
     /// Return a copy of the port (if any) contained in the URI.
-    #[must_use = "why did you get the port number and then throw it away?"]
     pub fn port(&self) -> Option<u16> {
         self.authority.as_ref().and_then(Authority::port)
     }
 
     /// Borrow the query (if any) of the URI.
-    #[must_use = "don't you want to know what that query was?"]
+    #[must_use]
     pub fn query(&self) -> Option<&[u8]> {
         self.query.as_deref()
     }
@@ -454,7 +450,6 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    #[must_use = "use the query return value silly programmer"]
     pub fn query_to_string(&self) -> Result<Option<String>, Error> {
         self.query()
             .map(|query| String::from_utf8(query.to_vec()).map_err(Into::into))
@@ -479,7 +474,7 @@ impl Uri {
     /// # Ok(())
     /// # }
     /// ```
-    #[must_use = "why go through all that effort to resolve the URI, when you're not going to use it?!"]
+    #[must_use]
     pub fn resolve(&self, relative_reference: &Self) -> Self {
         let (scheme, authority, path, query) = if relative_reference.scheme.is_some() {
             (
@@ -540,7 +535,7 @@ impl Uri {
     }
 
     /// Borrow the scheme (if any) component of the URI.
-    #[must_use = "you wanted to use that scheme, right?"]
+    #[must_use]
     pub fn scheme(&self) -> Option<&str> {
         // NOTE: This seemingly magic `as_deref` works because of two
         // things that are going on here:
@@ -639,7 +634,7 @@ impl Uri {
             // First separate the authority from the path.
             let authority_end = authority_and_path_string
                 .find('/')
-                .unwrap_or_else(|| authority_and_path_string.len());
+                .unwrap_or(authority_and_path_string.len());
             let authority_string = &authority_and_path_string[0..authority_end];
             let path_string = &authority_and_path_string[authority_end..];
 
@@ -681,12 +676,12 @@ impl Uri {
         self.scheme.take()
     }
 
-    /// Borrow the user_info portion (if any) of the Authority (if any) of the
+    /// Borrow the `user_info` portion (if any) of the Authority (if any) of the
     /// URI.
     ///
     /// Note that you can get `None` if there is either no Authority in the URI
-    /// or there is an Authority in the URI but it has no user_info in it.
-    #[must_use = "user_info not used"]
+    /// or there is an Authority in the URI but it has no `user_info` in it.
+    #[must_use]
     pub fn user_info(&self) -> Option<&[u8]> {
         self.authority.as_ref().and_then(Authority::user_info)
     }
@@ -699,7 +694,6 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    #[must_use = "user_info string not used"]
     pub fn user_info_to_string(&self) -> Result<Option<String>, Error> {
         self.user_info()
             .map(|user_info| String::from_utf8(user_info.to_vec()).map_err(Into::into))

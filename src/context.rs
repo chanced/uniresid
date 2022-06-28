@@ -36,7 +36,7 @@ pub enum Context {
 
     /// This is the scheme of the URI, such as `nobody` in
     /// `http://nobody@www.example.com/foo?bar#baz`.
-    user_info,
+    UserInfo,
 }
 
 impl std::fmt::Display for Context {
@@ -50,7 +50,7 @@ impl std::fmt::Display for Context {
             Context::Path => write!(f, "path"),
             Context::Query => write!(f, "query"),
             Context::Scheme => write!(f, "scheme"),
-            Context::user_info => write!(f, "user info"),
+            Context::UserInfo => write!(f, "user info"),
         }
     }
 }

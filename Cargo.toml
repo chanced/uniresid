@@ -1,6 +1,6 @@
 [package]
 name = "uniresid"
-version = "0.1.1"
+version = "0.1.0"
 description = "Implementation of RFC 3986 - Uniform Resource Identifier (URI)"
 authors = [
     "Chance Dinkins <chanceusc@gmail.com>",
