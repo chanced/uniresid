@@ -1,4 +1,4 @@
-# *u*ni*r*es*i*d
+# **u**ni**r**es**i**d
 
 [<img alt="github" src="https://img.shields.io/badge/github-chanced/uniresid-8da0cb?style=for-the-badge&labelColor=777&logo=github" height="20">](https://github.com/chanced/uniresid)
 [<img alt="crates.io" src="https://img.shields.io/crates/v/uniresid.svg?style=for-the-badge&color=fc8d62&logo=rust" height="20">](https://crates.io/crates/uniresid)
