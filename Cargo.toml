@@ -1,7 +1,7 @@
 cargo-features = ["rename-dependency"]
 [package]
 name = "uniresid"
-version = "0.1.3"
+version = "0.1.4"
 description = "URI (Uniform Resource Identifier) parser and data structures"
 authors = [
     "Chance Dinkins <chanceusc@gmail.com>",
