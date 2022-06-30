@@ -2,7 +2,7 @@ use std::{borrow::Borrow, ops::Deref};
 
 use crate::{error::MissingSchemeError, Authority, Error, Uri};
 
-/// TODO
+/// An absolute [`Uri`]
 #[derive(Clone, PartialEq, Eq)]
 pub struct AbsoluteUri {
     pub(crate) uri: Uri,
