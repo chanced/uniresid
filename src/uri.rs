@@ -85,7 +85,7 @@ use std::{collections::HashSet, convert::TryFrom, ops::Deref};
 /// [slice]: https://doc.rust-lang.org/std/primitive.slice.html
 /// [`TryFrom::try_from`]: https://doc.rust-lang.org/std/convert/trait.TryFrom.html#tymethod.try_from
 /// [`TryInto::try_into`]: https://doc.rust-lang.org/std/convert/trait.TryInto.html#tymethod.try_into
-#[derive(Clone, Default, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Default, Hash, PartialEq, Eq)]
 pub struct Uri {
     scheme: Option<String>,
     authority: Option<Authority>,
@@ -766,11 +766,11 @@ impl Uri {
     }
 }
 
-// impl std::fmt::Debug for Uri {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_tuple("Uri").field(&self.to_string()).finish()
-//     }
-// }
+impl std::fmt::Debug for Uri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Uri").field(&self.to_string()).finish()
+    }
+}
 
 impl std::fmt::Display for Uri {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

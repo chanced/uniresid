@@ -368,3 +368,30 @@ impl<'de> serde_::Deserialize<'de> for AbsoluteUri {
         Self::parse(s).map_err(serde_::de::Error::custom)
     }
 }
+impl std::fmt::Debug for AbsoluteUri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("AbsoluteUri")
+            .field(&self.to_string())
+            .finish()
+    }
+}
+impl TryFrom<&'_ str> for AbsoluteUri {
+    type Error = Error;
+
+    fn try_from(uri_string: &'_ str) -> Result<Self, Self::Error> {
+        AbsoluteUri::parse(uri_string)
+    }
+}
+
+impl TryFrom<String> for AbsoluteUri {
+    type Error = Error;
+
+    fn try_from(uri_string: String) -> Result<Self, Self::Error> {
+        AbsoluteUri::parse(uri_string)
+    }
+}
+impl std::fmt::Display for AbsoluteUri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.uri.to_string())
+    }
+}

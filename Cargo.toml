@@ -1,8 +1,8 @@
 cargo-features = ["rename-dependency"]
 [package]
 name = "uniresid"
-version = "0.1.2"
-description = "Uniform Resource Identifiers (URIs) - RFC 3986"
+version = "0.1.3"
+description = "URI (Uniform Resource Identifier) parser and data structures"
 authors = [
     "Chance Dinkins <chanceusc@gmail.com>",
     "Richard Walters <rwalters@digitalstirling.com>",
