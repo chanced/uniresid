@@ -10,8 +10,8 @@ use super::{
     context::Context,
     error::Error,
 };
-use std::fmt::Write;
 use std::{collections::HashSet, convert::TryFrom, ops::Deref};
+use std::{fmt::Write, string::FromUtf8Error};
 
 /// This type is used to parse and generate URI strings to and from their
 /// various components.  Components are percent-encoded as necessary during
@@ -123,7 +123,7 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn fragment_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn fragment_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.fragment()
             .map(|fragment| String::from_utf8(fragment.to_vec()).map_err(Into::into))
             .transpose()
@@ -143,9 +143,9 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn host_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn host_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.host()
-            .map(|host| String::from_utf8(host.to_vec()).map_err(Into::into))
+            .map(|host| String::from_utf8(host.to_vec()))
             .transpose()
     }
 
@@ -253,7 +253,7 @@ impl Uri {
     /// [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn path_to_string(&self) -> Result<String, Error> {
+    pub fn path_to_string(&self) -> Result<String, FromUtf8Error> {
         match &*self.path {
             [segment] if segment.is_empty() => Ok("/".to_string()),
             path => Ok(String::from_utf8(path.join(&b"/"[..]))?),
@@ -279,9 +279,9 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn query_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn query_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.query()
-            .map(|query| String::from_utf8(query.to_vec()).map_err(Into::into))
+            .map(|query| String::from_utf8(query.to_vec()))
             .transpose()
     }
 
@@ -509,9 +509,9 @@ impl Uri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn user_info_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn user_info_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.user_info()
-            .map(|user_info| String::from_utf8(user_info.to_vec()).map_err(Into::into))
+            .map(|user_info| String::from_utf8(user_info.to_vec()))
             .transpose()
     }
 

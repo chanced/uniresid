@@ -4,11 +4,6 @@ use super::context::Context;
 /// crate generates.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
-    /// One or more components of the URI contains a non-UTF8 sequence,
-    /// and so cannot be converted to a Rust string.
-    #[error("URI contains non-utf8 sequences")]
-    CannotExpressAsUtf8(#[from] std::string::FromUtf8Error),
-
     /// URI begins with an empty scheme, such as `://www.example.com`
     #[error("scheme expected but missing")]
     EmptyScheme,

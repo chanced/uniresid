@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, ops::Deref};
+use std::{borrow::Borrow, ops::Deref, string::FromUtf8Error};
 
 use crate::{error::MissingSchemeError, Authority, Error, Uri};
 
@@ -35,7 +35,7 @@ impl AbsoluteUri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn fragment_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn fragment_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.uri.fragment_to_string()
     }
 
@@ -53,7 +53,7 @@ impl AbsoluteUri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn host_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn host_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.uri.host_to_string()
     }
 
@@ -133,7 +133,7 @@ impl AbsoluteUri {
     /// [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn path_to_string(&self) -> Result<String, Error> {
+    pub fn path_to_string(&self) -> Result<String, FromUtf8Error> {
         self.uri.path_to_string()
     }
 
@@ -157,7 +157,7 @@ impl AbsoluteUri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn query_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn query_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.uri.query_to_string()
     }
 
@@ -298,9 +298,9 @@ impl AbsoluteUri {
     /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn user_info_to_string(&self) -> Result<Option<String>, Error> {
+    pub fn user_info_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
         self.user_info()
-            .map(|user_info| String::from_utf8(user_info.to_vec()).map_err(Into::into))
+            .map(|user_info| String::from_utf8(user_info.to_vec()))
             .transpose()
     }
 }
