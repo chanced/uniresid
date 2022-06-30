@@ -459,37 +459,37 @@ impl Uri {
         Ok(())
     }
 
-    /// Remove and return the authority portion (if any) of the URI.
-    #[must_use]
-    pub fn take_authority(&mut self) -> Option<Authority> {
-        let authority = self.authority.take();
-        self.update_raw();
-        authority
-    }
+    // /// Remove and return the authority portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_authority(&mut self) -> Option<Authority> {
+    //     let authority = self.authority.take();
+    //     self.update_raw();
+    //     authority
+    // }
 
-    /// Remove and return the fragment portion (if any) of the URI.
-    #[must_use]
-    pub fn take_fragment(&mut self) -> Option<Vec<u8>> {
-        let fragment = self.fragment.take();
-        self.update_raw();
-        fragment
-    }
+    // /// Remove and return the fragment portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_fragment(&mut self) -> Option<Vec<u8>> {
+    //     let fragment = self.fragment.take();
+    //     self.update_raw();
+    //     fragment
+    // }
 
-    /// Remove and return the query portion (if any) of the URI.
-    #[must_use]
-    pub fn take_query(&mut self) -> Option<Vec<u8>> {
-        let query = self.query.take();
-        self.update_raw();
-        query
-    }
+    // /// Remove and return the query portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_query(&mut self) -> Option<Vec<u8>> {
+    //     let query = self.query.take();
+    //     self.update_raw();
+    //     query
+    // }
 
-    /// Remove and return the scheme portion (if any) of the URI.
-    #[must_use]
-    pub fn take_scheme(&mut self) -> Option<String> {
-        let scheme = self.scheme.take();
-        self.update_raw();
-        scheme
-    }
+    // /// Remove and return the scheme portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_scheme(&mut self) -> Option<String> {
+    //     let scheme = self.scheme.take();
+    //     self.update_raw();
+    //     scheme
+    // }
 
     /// Borrow the `user_info` portion (if any) of the Authority (if any) of the
     /// URI.
@@ -810,6 +810,44 @@ impl From<AbsoluteUri> for Uri {
 impl From<&AbsoluteUri> for Uri {
     fn from(absolute_uri: &AbsoluteUri) -> Self {
         absolute_uri.uri.clone()
+    }
+}
+
+#[cfg(feature = "url")]
+impl TryInto<Uri> for url_::Url {
+    type Error = Error;
+    fn try_into(self) -> Result<Uri, Self::Error> {
+        Uri::parse(self)
+    }
+}
+
+#[cfg(feature = "url")]
+impl TryFrom<Uri> for url_::Url {
+    type Error = url_::ParseError;
+
+    fn try_from(value: Uri) -> Result<Self, Self::Error> {
+        value.try_into()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde_::Serialize for Uri {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde_::Serializer,
+    {
+        serializer.serialize_str(&self.raw)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde_::Deserialize<'de> for Uri {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde_::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Uri::parse(s).map_err(serde_::de::Error::custom)
     }
 }
 
@@ -2277,22 +2315,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn take_parts() {
-        let mut uri = Uri::parse("https://www.example.com/foo?bar#baz").unwrap();
-        assert_eq!(Some("https"), uri.take_scheme().as_deref());
-        assert_eq!("//www.example.com/foo?bar#baz", uri.to_string());
-        assert!(matches!(
-            uri.take_authority(),
-            Some(authority) if authority.host() == b"www.example.com"
-        ));
-        assert_eq!("/foo?bar#baz", uri.to_string());
-        assert!(matches!(uri.take_authority(), None));
-        assert_eq!(Some(&b"bar"[..]), uri.take_query().as_deref());
-        assert_eq!("/foo#baz", uri.to_string());
-        assert_eq!(None, uri.take_query().as_deref());
-        assert_eq!(Some(&b"baz"[..]), uri.take_fragment().as_deref());
-        assert_eq!("/foo", uri.to_string());
-        assert_eq!(None, uri.take_fragment().as_deref());
-    }
+    // #[test]
+    // fn take_parts() {
+    //     let mut uri = Uri::parse("https://www.example.com/foo?bar#baz").unwrap();
+    //     assert_eq!(Some("https"), uri.take_scheme().as_deref());
+    //     assert_eq!("//www.example.com/foo?bar#baz", uri.to_string());
+    //     assert!(matches!(
+    //         uri.take_authority(),
+    //         Some(authority) if authority.host() == b"www.example.com"
+    //     ));
+    //     assert_eq!("/foo?bar#baz", uri.to_string());
+    //     assert!(matches!(uri.take_authority(), None));
+    //     assert_eq!(Some(&b"bar"[..]), uri.take_query().as_deref());
+    //     assert_eq!("/foo#baz", uri.to_string());
+    //     assert_eq!(None, uri.take_query().as_deref());
+    //     assert_eq!(Some(&b"baz"[..]), uri.take_fragment().as_deref());
+    //     assert_eq!("/foo", uri.to_string());
+    //     assert_eq!(None, uri.take_fragment().as_deref());
+    // }
 }

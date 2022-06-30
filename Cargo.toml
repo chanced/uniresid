@@ -22,7 +22,7 @@ thiserror = "1.0"
 
 
 serde_ = { optional = true, version = "1", package = "serde" }
-url_ = { optional = true, version = "*", package = "url" }
+url_ = { optional = true, version = "2.2", package = "url" }
 [features]
 default = ["serde", "url"]
 serde = ["serde_"]

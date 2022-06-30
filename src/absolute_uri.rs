@@ -262,23 +262,23 @@ impl AbsoluteUri {
         }
     }
 
-    /// Remove and return the authority portion (if any) of the URI.
-    #[must_use]
-    pub fn take_authority(&mut self) -> Option<Authority> {
-        self.uri.take_authority()
-    }
+    // /// Remove and return the authority portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_authority(&mut self) -> Option<Authority> {
+    //     self.uri.take_authority()
+    // }
 
-    /// Remove and return the fragment portion (if any) of the URI.
-    #[must_use]
-    pub fn take_fragment(&mut self) -> Option<Vec<u8>> {
-        self.uri.take_fragment()
-    }
+    // /// Remove and return the fragment portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_fragment(&mut self) -> Option<Vec<u8>> {
+    //     self.uri.take_fragment()
+    // }
 
-    /// Remove and return the query portion (if any) of the URI.
-    #[must_use]
-    pub fn take_query(&mut self) -> Option<Vec<u8>> {
-        self.uri.take_query()
-    }
+    // /// Remove and return the query portion (if any) of the URI.
+    // #[must_use]
+    // pub fn take_query(&mut self) -> Option<Vec<u8>> {
+    //     self.uri.take_query()
+    // }
 
     /// Borrow the `user_info` portion (if any) of the Authority (if any) of the
     /// URI.
@@ -328,5 +328,43 @@ impl Deref for AbsoluteUri {
     type Target = Uri;
     fn deref(&self) -> &Self::Target {
         &self.uri
+    }
+}
+#[cfg(feature = "url")]
+impl TryInto<AbsoluteUri> for url_::Url {
+    type Error = Error;
+
+    fn try_into(self) -> Result<AbsoluteUri, Self::Error> {
+        AbsoluteUri::parse(self)
+    }
+}
+
+#[cfg(feature = "url")]
+impl TryFrom<AbsoluteUri> for url_::Url {
+    type Error = url_::ParseError;
+
+    fn try_from(value: AbsoluteUri) -> Result<Self, Self::Error> {
+        value.uri.try_into()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde_::Serialize for AbsoluteUri {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde_::Serializer,
+    {
+        serializer.serialize_str(&self.uri)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde_::Deserialize<'de> for AbsoluteUri {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde_::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::parse(s).map_err(serde_::de::Error::custom)
     }
 }
