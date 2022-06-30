@@ -54,7 +54,7 @@
 //!
 //! [`Uri`]: struct.Uri.html
 
-#![warn(clippy::pedantic)]
+// #![warn(clippy::pedantic)]
 #![allow(clippy::non_ascii_literal)]
 #![warn(missing_docs)]
 

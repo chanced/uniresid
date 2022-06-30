@@ -202,13 +202,13 @@ mod tests {
     #[test]
     fn user_info_barely_legal() {
         let test_vectors: &[(&str, &str)] = &[
-            ("%41@www.example.com", "A").into(),
-            ("@www.example.com", "").into(),
-            ("!@www.example.com", "!").into(),
-            ("'@www.example.com", "'").into(),
-            ("(@www.example.com", "(").into(),
-            (";@www.example.com", ";").into(),
-            (":@www.example.com", ":").into(),
+            ("%41@www.example.com", "A"),
+            ("@www.example.com", ""),
+            ("!@www.example.com", "!"),
+            ("'@www.example.com", "'"),
+            ("(@www.example.com", "("),
+            (";@www.example.com", ";"),
+            (":@www.example.com", ":"),
         ];
         for test_vector in test_vectors {
             let authority = Authority::parse(test_vector.0);
@@ -234,15 +234,15 @@ mod tests {
     #[allow(clippy::from_over_into)]
     fn host_barely_legal() {
         let test_vectors: &[(&str, &str)] = &[
-            ("%41", "a").into(),
-            ("", "").into(),
-            ("!", "!").into(),
-            ("'", "'").into(),
-            ("(", "(").into(),
-            (";", ";").into(),
-            ("1.2.3.4", "1.2.3.4").into(),
-            ("[v7.:]", "v7.:").into(),
-            ("[v7.aB]", "v7.aB").into(),
+            ("%41", "a"),
+            ("", ""),
+            ("!", "!"),
+            ("'", "'"),
+            ("(", "("),
+            (";", ";"),
+            ("1.2.3.4", "1.2.3.4"),
+            ("[v7.:]", "v7.:"),
+            ("[v7.aB]", "v7.aB"),
         ];
         for test_vector in test_vectors {
             let authority = Authority::parse(test_vector.0);

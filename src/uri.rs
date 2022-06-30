@@ -2171,7 +2171,7 @@ mod tests {
             {
                 let mut authority = Authority::default();
                 authority.set_user_info(test_vector.user_info.map(Into::into));
-                authority.set_host(test_vector.host.unwrap_or_else(|| ""));
+                authority.set_host(test_vector.host.unwrap_or(""));
                 authority.set_port(test_vector.port);
                 uri.set_authority(Some(authority));
             } else {

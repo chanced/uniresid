@@ -59,6 +59,7 @@ pub enum Error {
     #[error("truncated host")]
     TruncatedHost,
 
+    /// An AbsoluteUri was parsed without a scheme.
     #[error("missing scheme")]
     MissingScheme(
         #[source]
@@ -68,6 +69,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+/// An AbsoluteUri was parsed without a scheme.
 pub struct MissingSchemeError {
     pub uri_string: String,
 }
