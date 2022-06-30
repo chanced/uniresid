@@ -39,15 +39,14 @@ use std::{fmt::Write, string::FromUtf8Error};
 /// ```rust
 /// use uniresid::Uri;
 ///
-/// # fn main() -> Result<(), uniresid::Error> {
-/// let uri = Uri::parse("http://www.example.com/foo?bar#baz")?;
+/// # fn main() {
+/// let uri = Uri::parse("http://www.example.com/foo?bar#baz").unwrap();
 /// let authority = uri.authority().unwrap();
 /// assert_eq!("www.example.com".as_bytes(), authority.host());
-/// assert_eq!(Some("www.example.com"), uri.host_to_string()?.as_deref());
-/// assert_eq!("/foo", uri.path_to_string()?);
-/// assert_eq!(Some("bar"), uri.query_to_string()?.as_deref());
-/// assert_eq!(Some("baz"), uri.fragment_to_string()?.as_deref());
-/// # Ok(())
+/// assert_eq!(Some("www.example.com"), uri.host_to_string().unwrap().as_deref());
+/// assert_eq!("/foo", uri.path_to_string().unwrap());
+/// assert_eq!(Some("bar"), uri.query_to_string().unwrap().as_deref());
+/// assert_eq!(Some("baz"), uri.fragment_to_string().unwrap().as_deref());
 /// # }
 /// ```
 ///
@@ -169,11 +168,10 @@ impl Uri {
     /// ```rust
     /// use uniresid::Uri;
     ///
-    /// # fn main() -> Result<(), uniresid::Error> {
-    /// let mut uri = Uri::parse("/a/b/c/./../../g")?;
+    /// # fn main() {
+    /// let mut uri = Uri::parse("/a/b/c/./../../g").unwrap();
     /// uri.normalize();
-    /// assert_eq!("/a/g", uri.path_to_string()?);
-    /// # Ok(())
+    /// assert_eq!("/a/g", uri.path_to_string().unwrap());
     /// # }
     /// ```
     pub fn normalize(&mut self) {

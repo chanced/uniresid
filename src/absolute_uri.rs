@@ -68,11 +68,10 @@ impl AbsoluteUri {
     /// ```rust
     /// use uniresid::Uri;
     ///
-    /// # fn main() -> Result<(), uniresid::Error> {
-    /// let mut uri = Uri::parse("/a/b/c/./../../g")?;
+    /// # fn main() {
+    /// let mut uri = Uri::parse("/a/b/c/./../../g").unwrap();
     /// uri.normalize();
-    /// assert_eq!("/a/g", uri.path_to_string()?);
-    /// # Ok(())
+    /// assert_eq!("/a/g", uri.path_to_string().unwrap());
     /// # }
     /// ```
     pub fn normalize(&mut self) {
