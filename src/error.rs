@@ -6,7 +6,7 @@ use super::context::Context;
 pub enum Error {
     /// One or more components of the URI contains a non-UTF8 sequence,
     /// and so cannot be converted to a Rust string.
-    #[error("URI contains non-UTF8 sequences")]
+    #[error("URI contains non-utf8 sequences")]
     CannotExpressAsUtf8(#[from] std::string::FromUtf8Error),
 
     /// URI begins with an empty scheme, such as `://www.example.com`
@@ -58,4 +58,22 @@ pub enum Error {
     /// `http://[2001:db8:85a3::8a2e:0:]/`
     #[error("truncated host")]
     TruncatedHost,
+
+    #[error("missing scheme")]
+    MissingScheme(
+        #[source]
+        #[from]
+        MissingSchemeError,
+    ),
+}
+
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+pub struct MissingSchemeError {
+    pub uri_string: String,
+}
+
+impl std::fmt::Display for MissingSchemeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "missing scheme in uri: {}", self.uri_string)
+    }
 }

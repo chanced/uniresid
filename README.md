@@ -1,11 +1,12 @@
-# Uri
+# <ins>u</ins>ni<ins>r</ins>es<ins>i</ins>d
 
-This is a library which implements [IETF RFC
-3986](https://tools.ietf.org/html/rfc3986), "Uniform Resource Identifier (URI):
-Generic Syntax".
+[<img alt="github" src="https://img.shields.io/badge/github-chanced/uniresid-8da0cb?style=for-the-badge&labelColor=777&logo=github" height="20">](https://github.com/chanced/uniresid)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/uniresid.svg?style=for-the-badge&color=fc8d62&logo=rust" height="20">](https://crates.io/crates/uniresid)
+[<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-uniresid-f0f0f0?style=for-the-badge&labelColor=777&logo=docs.rs" height="20">](https://docs.rs/uniresid)
+[<img alt="build status" src="https://img.shields.io/github/workflow/status/chanced/uniresid/CI/master?style=for-the-badge" height="20">](https://github.com/chanced/uniresid/actions?query=branch%3Amaster)
 
-More information about this library can be found in
-the [crate documentation](https://docs.rs/uris).
+**U**niform **R**esource **I**dentifiers ([RFC
+3986](https://tools.ietf.org/html/rfc3986)) for rust.
 
 A URI is a compact sequence of characters that identifies an abstract or
 physical resource. One common form of URI is the Uniform Resource Locator
@@ -24,7 +25,7 @@ assemble URIs from their various components.
 ## Credits
 
 This crate has been forked from [uris](https://crates.io/crates/uris). Thanks to
-Richard Walters for the [original implementation](https://crates.io/crates/uris)
+Richard Walters for the [original implementation](https://crates.io/crates/rhymuri)
 and Martin Fischer for his improvements.
 
 ## License

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, convert::TryFrom};
+use crate::AbsoluteUri;
 
 use super::{
     authority::Authority,
@@ -10,6 +10,8 @@ use super::{
     context::Context,
     error::Error,
 };
+use std::fmt::Write;
+use std::{collections::HashSet, convert::TryFrom, ops::Deref};
 
 /// This type is used to parse and generate URI strings to and from their
 /// various components.  Components are percent-encoded as necessary during
@@ -35,10 +37,9 @@ use super::{
 /// ## Parsing a URI into its components
 ///
 /// ```rust
-/// # extern crate uris;
-/// use uris::Uri;
+/// use uniresid::Uri;
 ///
-/// # fn main() -> Result<(), uris::Error> {
+/// # fn main() -> Result<(), uniresid::Error> {
 /// let uri = Uri::parse("http://www.example.com/foo?bar#baz")?;
 /// let authority = uri.authority().unwrap();
 /// assert_eq!("www.example.com".as_bytes(), authority.host());
@@ -57,11 +58,7 @@ use super::{
 /// ## Generating a URI from its components
 ///
 /// ```rust
-/// # extern crate uris;
-/// use uris::{
-///     Authority,
-///     Uri,
-/// };
+/// use uniresid::{ Authority, Uri };
 ///
 /// let mut uri = Uri::default();
 /// assert!(uri.set_scheme(String::from("http")).is_ok());
@@ -88,13 +85,14 @@ use super::{
 /// [slice]: https://doc.rust-lang.org/std/primitive.slice.html
 /// [`TryFrom::try_from`]: https://doc.rust-lang.org/std/convert/trait.TryFrom.html#tymethod.try_from
 /// [`TryInto::try_into`]: https://doc.rust-lang.org/std/convert/trait.TryInto.html#tymethod.try_into
-#[derive(Clone, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Default, Hash, PartialEq, Eq, Debug)]
 pub struct Uri {
     scheme: Option<String>,
     authority: Option<Authority>,
     path: Vec<Vec<u8>>,
     query: Option<Vec<u8>>,
     fragment: Option<Vec<u8>>,
+    raw: String,
 }
 
 impl Uri {
@@ -104,58 +102,11 @@ impl Uri {
         self.authority.as_ref()
     }
 
-    fn can_navigate_path_up_one_level<T>(path: T) -> bool
-    where
-        T: AsRef<[Vec<u8>]>,
-    {
-        let path = path.as_ref();
-        match path.first() {
-            // First segment empty means path has leading slash,
-            // so we can only navigate up if there are two or more segments.
-            Some(segment) if segment.is_empty() => path.len() > 1,
-
-            // Otherwise, we can navigate up as long as there is at least one
-            // segment.
-            Some(_) => true,
-            None => false,
-        }
-    }
-
-    fn check_scheme<T>(scheme: T) -> Result<T, Error>
-    where
-        T: AsRef<str>,
-    {
-        match scheme.as_ref() {
-            "" => return Err(Error::EmptyScheme),
-            scheme => scheme.chars().enumerate().try_fold((), |_, (i, c)| {
-                let valid_characters: &HashSet<char> =
-                    if i == 0 { &ALPHA } else { &SCHEME_NOT_FIRST };
-                if valid_characters.contains(&c) {
-                    Ok(())
-                } else {
-                    Err(Error::IllegalCharacter(Context::Scheme))
-                }
-            })?,
-        };
-        Ok(scheme)
-    }
-
     /// Determines if the URI contains a relative path rather than an absolute
     /// path.
     #[must_use]
     pub fn contains_relative_path(&self) -> bool {
         !Self::is_path_absolute(&self.path)
-    }
-
-    fn decode_query_or_fragment<T>(query_or_fragment: T, context: Context) -> Result<Vec<u8>, Error>
-    where
-        T: AsRef<str>,
-    {
-        decode_element(
-            query_or_fragment,
-            &QUERY_OR_FRAGMENT_NOT_PCT_ENCODED,
-            context,
-        )
     }
 
     /// Borrow the fragment (if any) of the URI.
@@ -198,13 +149,6 @@ impl Uri {
             .transpose()
     }
 
-    fn is_path_absolute<T>(path: T) -> bool
-    where
-        T: AsRef<[Vec<u8>]>,
-    {
-        matches!(path.as_ref(), [segment, ..] if segment.is_empty())
-    }
-
     /// Determines if the URI is a `relative-ref` (relative reference), as
     /// defined in [RFC 3986 section
     /// 4.2](https://tools.ietf.org/html/rfc3986#section-4.2).  A relative
@@ -223,10 +167,9 @@ impl Uri {
     /// # Examples
     ///
     /// ```rust
-    /// # extern crate uris;
-    /// use uris::Uri;
+    /// use uniresid::Uri;
     ///
-    /// # fn main() -> Result<(), uris::Error> {
+    /// # fn main() -> Result<(), uniresid::Error> {
     /// let mut uri = Uri::parse("/a/b/c/./../../g")?;
     /// uri.normalize();
     /// assert_eq!("/a/g", uri.path_to_string()?);
@@ -235,57 +178,7 @@ impl Uri {
     /// ```
     pub fn normalize(&mut self) {
         self.path = Self::normalize_path(&self.path);
-    }
-
-    fn normalize_path<T>(original_path: T) -> Vec<Vec<u8>>
-    where
-        T: AsRef<[Vec<u8>]>,
-    {
-        // Rebuild the path one segment
-        // at a time, removing and applying special
-        // navigation segments ("." and "..") as we go.
-        //
-        // The `at_directory_level` variable tracks whether or not
-        // the `normalized_path` refers to a directory.
-        let mut at_directory_level = false;
-        let mut normalized_path = Vec::new();
-        for segment in original_path.as_ref() {
-            if segment == b"." {
-                at_directory_level = true;
-            } else if segment == b".." {
-                // Remove last path element
-                // if we can navigate up a level.
-                if !normalized_path.is_empty()
-                    && Self::can_navigate_path_up_one_level(&normalized_path)
-                {
-                    normalized_path.pop();
-                }
-                at_directory_level = true;
-            } else {
-                // Non-relative elements can just
-                // transfer over fine.  An empty
-                // segment marks a transition to
-                // a directory level context.  If we're
-                // already in that context, we
-                // want to ignore the transition.
-                let new_at_directory_level = segment.is_empty();
-                if !at_directory_level || !segment.is_empty() {
-                    normalized_path.push(segment.clone());
-                }
-                at_directory_level = new_at_directory_level;
-            }
-        }
-
-        // If at the end of rebuilding the path,
-        // we're in a directory level context,
-        // add an empty segment to mark the fact.
-        match (at_directory_level, normalized_path.last()) {
-            (true, Some(segment)) if !segment.is_empty() => {
-                normalized_path.push(vec![]);
-            }
-            _ => (),
-        }
-        normalized_path
+        self.update_raw();
     }
 
     /// Interpret the given string as a URI, separating its various components,
@@ -300,7 +193,8 @@ impl Uri {
     where
         T: AsRef<str>,
     {
-        let (scheme, rest) = Self::parse_scheme(uri_string.as_ref())?;
+        let s = uri_string.as_ref();
+        let (scheme, rest) = Self::parse_scheme(s)?;
         let path_end = rest.find(&['?', '#'][..]).unwrap_or(rest.len());
         let authority_and_path_string = &rest[0..path_end];
         let query_and_or_fragment = &rest[path_end..];
@@ -308,81 +202,16 @@ impl Uri {
             Self::split_authority_from_path_and_parse_them(authority_and_path_string)?;
         let (fragment, possible_query) = Self::parse_fragment(query_and_or_fragment)?;
         let query = Self::parse_query(possible_query)?;
-        Ok(Self {
+        let mut this = Self {
             scheme,
             authority,
             path,
             query,
             fragment,
-        })
-    }
-
-    fn parse_fragment(query_and_or_fragment: &str) -> Result<(Option<Vec<u8>>, &str), Error> {
-        if let Some(fragment_delimiter) = query_and_or_fragment.find('#') {
-            let fragment = Self::decode_query_or_fragment(
-                &query_and_or_fragment[fragment_delimiter + 1..],
-                Context::Fragment,
-            )?;
-            Ok((
-                Some(fragment),
-                &query_and_or_fragment[0..fragment_delimiter],
-            ))
-        } else {
-            Ok((None, query_and_or_fragment))
-        }
-    }
-
-    fn parse_path<T>(path_string: T) -> Result<Vec<Vec<u8>>, Error>
-    where
-        T: AsRef<str>,
-    {
-        match path_string.as_ref() {
-            "/" => {
-                // Special case of an empty absolute path, which we want to
-                // represent as single empty-string element to indicate that it
-                // is absolute.
-                Ok(vec![vec![]])
-            }
-
-            "" => {
-                // Special case of an empty relative path, which we want to
-                // represent as an empty vector.
-                Ok(vec![])
-            }
-
-            path_string => path_string
-                .split('/')
-                .map(|segment| decode_element(&segment, &PCHAR_NOT_PCT_ENCODED, Context::Path))
-                .collect(),
-        }
-    }
-
-    fn parse_query<T>(query_and_or_fragment: T) -> Result<Option<Vec<u8>>, Error>
-    where
-        T: AsRef<str>,
-    {
-        let query_and_or_fragment = query_and_or_fragment.as_ref();
-        if query_and_or_fragment.is_empty() {
-            Ok(None)
-        } else {
-            let query =
-                Self::decode_query_or_fragment(&query_and_or_fragment[1..], Context::Query)?;
-            Ok(Some(query))
-        }
-    }
-
-    fn parse_scheme(uri_string: &str) -> Result<(Option<String>, &str), Error> {
-        // Limit our search so we don't scan into the authority
-        // or path elements, because these may have the colon
-        // character as well, which we might misinterpret
-        // as the scheme delimiter.
-        let authority_or_path_delimiter_start = uri_string.find('/').unwrap_or(uri_string.len());
-        if let Some(scheme_end) = &uri_string[0..authority_or_path_delimiter_start].find(':') {
-            let scheme = Self::check_scheme(&uri_string[0..*scheme_end])?.to_lowercase();
-            Ok((Some(scheme), &uri_string[*scheme_end + 1..]))
-        } else {
-            Ok((None, uri_string))
-        }
+            raw: String::default(),
+        };
+        this.update_raw();
+        Ok(this)
     }
 
     /// Borrow the path component of the URI.
@@ -463,10 +292,9 @@ impl Uri {
     /// # Examples
     ///
     /// ```rust
-    /// # extern crate uris;
-    /// use uris::Uri;
+    /// use uniresid::Uri;
     ///
-    /// # fn main() -> Result<(), uris::Error> {
+    /// # fn main() -> Result<(), uniresid::Error> {
     /// let base = Uri::parse("http://a/b/c/d;p?q")?;
     /// let relative_reference = Uri::parse("g;x?y#s")?;
     /// let resolved = base.resolve(&relative_reference);
@@ -525,13 +353,16 @@ impl Uri {
                 },
             )
         };
-        Self {
+        let mut temp = Self {
             scheme,
             authority,
             path,
             query,
             fragment: relative_reference.fragment.clone(),
-        }
+            raw: String::default(),
+        };
+        temp.update_raw();
+        temp
     }
 
     /// Borrow the scheme (if any) component of the URI.
@@ -553,6 +384,7 @@ impl Uri {
         T: Into<Option<Authority>>,
     {
         self.authority = authority.into();
+        self.update_raw();
     }
 
     /// Change the fragment of the URI.
@@ -561,6 +393,7 @@ impl Uri {
         T: Into<Option<Vec<u8>>>,
     {
         self.fragment = fragment.into();
+        self.update_raw();
     }
 
     /// Change the path of the URI.
@@ -572,6 +405,7 @@ impl Uri {
         T: Into<Vec<Vec<u8>>>,
     {
         self.path = path.into();
+        self.update_raw();
     }
 
     /// Change the path of the URI using a string which is split by its slash
@@ -591,6 +425,7 @@ impl Uri {
                     .collect::<Vec<Vec<u8>>>(),
             ),
         }
+        self.update_raw();
     }
 
     /// Change the query of the URI.
@@ -599,6 +434,7 @@ impl Uri {
         T: Into<Option<Vec<u8>>>,
     {
         self.query = query.into();
+        self.update_raw();
     }
 
     /// Change the scheme of the URI.
@@ -619,7 +455,248 @@ impl Uri {
             }
             None => None,
         };
+        self.update_raw();
         Ok(())
+    }
+
+    /// Remove and return the authority portion (if any) of the URI.
+    #[must_use]
+    pub fn take_authority(&mut self) -> Option<Authority> {
+        let authority = self.authority.take();
+        self.update_raw();
+        authority
+    }
+
+    /// Remove and return the fragment portion (if any) of the URI.
+    #[must_use]
+    pub fn take_fragment(&mut self) -> Option<Vec<u8>> {
+        let fragment = self.fragment.take();
+        self.update_raw();
+        fragment
+    }
+
+    /// Remove and return the query portion (if any) of the URI.
+    #[must_use]
+    pub fn take_query(&mut self) -> Option<Vec<u8>> {
+        let query = self.query.take();
+        self.update_raw();
+        query
+    }
+
+    /// Remove and return the scheme portion (if any) of the URI.
+    #[must_use]
+    pub fn take_scheme(&mut self) -> Option<String> {
+        let scheme = self.scheme.take();
+        self.update_raw();
+        scheme
+    }
+
+    /// Borrow the `user_info` portion (if any) of the Authority (if any) of the
+    /// URI.
+    ///
+    /// Note that you can get `None` if there is either no Authority in the URI
+    /// or there is an Authority in the URI but it has no `user_info` in it.
+    #[must_use]
+    pub fn user_info(&self) -> Option<&[u8]> {
+        self.authority.as_ref().and_then(Authority::user_info)
+    }
+
+    /// Convert the fragment (if any) into a string.
+    ///
+    /// # Errors
+    ///
+    /// Since fragments may contain non-UTF8 byte sequences, this function may
+    /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
+    ///
+    /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
+    pub fn user_info_to_string(&self) -> Result<Option<String>, Error> {
+        self.user_info()
+            .map(|user_info| String::from_utf8(user_info.to_vec()).map_err(Into::into))
+            .transpose()
+    }
+
+    // ----------------------------------------------------------------------------------------------
+    //                                         private methods
+    // ----------------------------------------------------------------------------------------------
+    fn is_path_absolute<T>(path: T) -> bool
+    where
+        T: AsRef<[Vec<u8>]>,
+    {
+        matches!(path.as_ref(), [segment, ..] if segment.is_empty())
+    }
+
+    fn decode_query_or_fragment<T>(query_or_fragment: T, context: Context) -> Result<Vec<u8>, Error>
+    where
+        T: AsRef<str>,
+    {
+        decode_element(
+            query_or_fragment,
+            &QUERY_OR_FRAGMENT_NOT_PCT_ENCODED,
+            context,
+        )
+    }
+
+    fn update_raw(&mut self) {
+        let mut raw = String::new();
+
+        if let Some(scheme) = &self.scheme {
+            write!(&mut raw, "{}:", scheme).unwrap();
+        }
+        if let Some(authority) = &self.authority {
+            write!(&mut raw, "//{}", authority).unwrap();
+        }
+        // Special case: absolute but otherwise empty path.
+        if Self::is_path_absolute(&self.path) && self.path.len() == 1 {
+            write!(&mut raw, "/").unwrap();
+        }
+        for (i, segment) in self.path.iter().enumerate() {
+            write!(
+                &mut raw,
+                "{}",
+                encode_element(segment, &PCHAR_NOT_PCT_ENCODED)
+            )
+            .unwrap();
+            if i + 1 < self.path.len() {
+                write!(&mut raw, "/").unwrap();
+            }
+        }
+        if let Some(query) = &self.query {
+            write!(
+                &mut raw,
+                "?{}",
+                encode_element(query, &QUERY_NOT_PCT_ENCODED_WITHOUT_PLUS)
+            )
+            .unwrap();
+        }
+        if let Some(fragment) = &self.fragment {
+            write!(
+                raw,
+                "#{}",
+                encode_element(fragment, &QUERY_OR_FRAGMENT_NOT_PCT_ENCODED)
+            )
+            .unwrap();
+        }
+
+        self.raw = raw;
+    }
+
+    fn parse_fragment(query_and_or_fragment: &str) -> Result<(Option<Vec<u8>>, &str), Error> {
+        if let Some(fragment_delimiter) = query_and_or_fragment.find('#') {
+            let fragment = Self::decode_query_or_fragment(
+                &query_and_or_fragment[fragment_delimiter + 1..],
+                Context::Fragment,
+            )?;
+            Ok((
+                Some(fragment),
+                &query_and_or_fragment[0..fragment_delimiter],
+            ))
+        } else {
+            Ok((None, query_and_or_fragment))
+        }
+    }
+
+    fn parse_path<T>(path_string: T) -> Result<Vec<Vec<u8>>, Error>
+    where
+        T: AsRef<str>,
+    {
+        match path_string.as_ref() {
+            "/" => {
+                // Special case of an empty absolute path, which we want to
+                // represent as single empty-string element to indicate that it
+                // is absolute.
+                Ok(vec![vec![]])
+            }
+
+            "" => {
+                // Special case of an empty relative path, which we want to
+                // represent as an empty vector.
+                Ok(vec![])
+            }
+
+            path_string => path_string
+                .split('/')
+                .map(|segment| decode_element(&segment, &PCHAR_NOT_PCT_ENCODED, Context::Path))
+                .collect(),
+        }
+    }
+
+    fn parse_query<T>(query_and_or_fragment: T) -> Result<Option<Vec<u8>>, Error>
+    where
+        T: AsRef<str>,
+    {
+        let query_and_or_fragment = query_and_or_fragment.as_ref();
+        if query_and_or_fragment.is_empty() {
+            Ok(None)
+        } else {
+            let query =
+                Self::decode_query_or_fragment(&query_and_or_fragment[1..], Context::Query)?;
+            Ok(Some(query))
+        }
+    }
+
+    fn parse_scheme(uri_string: &str) -> Result<(Option<String>, &str), Error> {
+        // Limit our search so we don't scan into the authority
+        // or path elements, because these may have the colon
+        // character as well, which we might misinterpret
+        // as the scheme delimiter.
+        let authority_or_path_delimiter_start = uri_string.find('/').unwrap_or(uri_string.len());
+        if let Some(scheme_end) = &uri_string[0..authority_or_path_delimiter_start].find(':') {
+            let scheme = Self::check_scheme(&uri_string[0..*scheme_end])?.to_lowercase();
+            Ok((Some(scheme), &uri_string[*scheme_end + 1..]))
+        } else {
+            Ok((None, uri_string))
+        }
+    }
+
+    fn normalize_path<T>(original_path: T) -> Vec<Vec<u8>>
+    where
+        T: AsRef<[Vec<u8>]>,
+    {
+        // Rebuild the path one segment
+        // at a time, removing and applying special
+        // navigation segments ("." and "..") as we go.
+        //
+        // The `at_directory_level` variable tracks whether or not
+        // the `normalized_path` refers to a directory.
+        let mut at_directory_level = false;
+        let mut normalized_path = Vec::new();
+        for segment in original_path.as_ref() {
+            if segment == b"." {
+                at_directory_level = true;
+            } else if segment == b".." {
+                // Remove last path element
+                // if we can navigate up a level.
+                if !normalized_path.is_empty()
+                    && Self::can_navigate_path_up_one_level(&normalized_path)
+                {
+                    normalized_path.pop();
+                }
+                at_directory_level = true;
+            } else {
+                // Non-relative elements can just
+                // transfer over fine.  An empty
+                // segment marks a transition to
+                // a directory level context.  If we're
+                // already in that context, we
+                // want to ignore the transition.
+                let new_at_directory_level = segment.is_empty();
+                if !at_directory_level || !segment.is_empty() {
+                    normalized_path.push(segment.clone());
+                }
+                at_directory_level = new_at_directory_level;
+            }
+        }
+
+        // If at the end of rebuilding the path,
+        // we're in a directory level context,
+        // add an empty segment to mark the fact.
+        match (at_directory_level, normalized_path.last()) {
+            (true, Some(segment)) if !segment.is_empty() => {
+                normalized_path.push(vec![]);
+            }
+            _ => (),
+        }
+        normalized_path
     }
 
     fn split_authority_from_path_and_parse_them<T>(
@@ -652,94 +729,59 @@ impl Uri {
         }
     }
 
-    /// Remove and return the authority portion (if any) of the URI.
-    #[must_use]
-    pub fn take_authority(&mut self) -> Option<Authority> {
-        self.authority.take()
+    fn can_navigate_path_up_one_level<T>(path: T) -> bool
+    where
+        T: AsRef<[Vec<u8>]>,
+    {
+        let path = path.as_ref();
+        match path.first() {
+            // First segment empty means path has leading slash,
+            // so we can only navigate up if there are two or more segments.
+            Some(segment) if segment.is_empty() => path.len() > 1,
+
+            // Otherwise, we can navigate up as long as there is at least one
+            // segment.
+            Some(_) => true,
+            None => false,
+        }
     }
 
-    /// Remove and return the fragment portion (if any) of the URI.
-    #[must_use]
-    pub fn take_fragment(&mut self) -> Option<Vec<u8>> {
-        self.fragment.take()
-    }
-
-    /// Remove and return the query portion (if any) of the URI.
-    #[must_use]
-    pub fn take_query(&mut self) -> Option<Vec<u8>> {
-        self.query.take()
-    }
-
-    /// Remove and return the scheme portion (if any) of the URI.
-    #[must_use]
-    pub fn take_scheme(&mut self) -> Option<String> {
-        self.scheme.take()
-    }
-
-    /// Borrow the `user_info` portion (if any) of the Authority (if any) of the
-    /// URI.
-    ///
-    /// Note that you can get `None` if there is either no Authority in the URI
-    /// or there is an Authority in the URI but it has no `user_info` in it.
-    #[must_use]
-    pub fn user_info(&self) -> Option<&[u8]> {
-        self.authority.as_ref().and_then(Authority::user_info)
-    }
-
-    /// Convert the fragment (if any) into a string.
-    ///
-    /// # Errors
-    ///
-    /// Since fragments may contain non-UTF8 byte sequences, this function may
-    /// return [`Error::CannotExpressAsUtf8`][CannotExpressAsUtf8].
-    ///
-    /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
-    pub fn user_info_to_string(&self) -> Result<Option<String>, Error> {
-        self.user_info()
-            .map(|user_info| String::from_utf8(user_info.to_vec()).map_err(Into::into))
-            .transpose()
+    fn check_scheme<T>(scheme: T) -> Result<T, Error>
+    where
+        T: AsRef<str>,
+    {
+        match scheme.as_ref() {
+            "" => return Err(Error::EmptyScheme),
+            scheme => scheme.chars().enumerate().try_fold((), |_, (i, c)| {
+                let valid_characters: &HashSet<char> =
+                    if i == 0 { &ALPHA } else { &SCHEME_NOT_FIRST };
+                if valid_characters.contains(&c) {
+                    Ok(())
+                } else {
+                    Err(Error::IllegalCharacter(Context::Scheme))
+                }
+            })?,
+        };
+        Ok(scheme)
     }
 }
 
-impl std::fmt::Debug for Uri {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Uri").field(&self.to_string()).finish()
-    }
-}
+// impl std::fmt::Debug for Uri {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         f.debug_tuple("Uri").field(&self.to_string()).finish()
+//     }
+// }
 
 impl std::fmt::Display for Uri {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(scheme) = &self.scheme {
-            write!(f, "{}:", scheme)?;
-        }
-        if let Some(authority) = &self.authority {
-            write!(f, "//{}", authority)?;
-        }
-        // Special case: absolute but otherwise empty path.
-        if Self::is_path_absolute(&self.path) && self.path.len() == 1 {
-            write!(f, "/")?;
-        }
-        for (i, segment) in self.path.iter().enumerate() {
-            write!(f, "{}", encode_element(segment, &PCHAR_NOT_PCT_ENCODED))?;
-            if i + 1 < self.path.len() {
-                write!(f, "/")?;
-            }
-        }
-        if let Some(query) = &self.query {
-            write!(
-                f,
-                "?{}",
-                encode_element(query, &QUERY_NOT_PCT_ENCODED_WITHOUT_PLUS)
-            )?;
-        }
-        if let Some(fragment) = &self.fragment {
-            write!(
-                f,
-                "#{}",
-                encode_element(fragment, &QUERY_OR_FRAGMENT_NOT_PCT_ENCODED)
-            )?;
-        }
-        Ok(())
+        write!(f, "{}", &self.raw)
+    }
+}
+
+impl Deref for Uri {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.raw
     }
 }
 
@@ -756,6 +798,18 @@ impl TryFrom<String> for Uri {
 
     fn try_from(uri_string: String) -> Result<Self, Self::Error> {
         Uri::parse(uri_string)
+    }
+}
+
+impl From<AbsoluteUri> for Uri {
+    fn from(absolute_uri: AbsoluteUri) -> Self {
+        absolute_uri.uri
+    }
+}
+
+impl From<&AbsoluteUri> for Uri {
+    fn from(absolute_uri: &AbsoluteUri) -> Self {
+        absolute_uri.uri.clone()
     }
 }
 
@@ -801,27 +855,36 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn path_corner_cases() {
-        named_tuple!(
-            struct TestVector {
-                path_in: &'static str,
-                path_out: Vec<&'static [u8]>,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("", vec![]).into(),
-            ("/", vec![&b""[..]]).into(),
-            ("/foo", vec![&b""[..], &b"foo"[..]]).into(),
-            ("foo/", vec![&b"foo"[..], &b""[..]]).into(),
+        struct Test {
+            path_in: &'static str,
+            path_out: Vec<&'static [u8]>,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                path_in: "",
+                path_out: vec![],
+            },
+            Test {
+                path_in: "/",
+                path_out: vec![&b""[..]],
+            },
+            Test {
+                path_in: "/foo",
+                path_out: vec![&b""[..], &b"foo"[..]],
+            },
+            Test {
+                path_in: "foo/",
+                path_out: vec![&b"foo"[..], &b""[..]],
+            },
         ];
         for test_vector in test_vectors {
-            let uri = Uri::parse(test_vector.path_in());
+            let uri = Uri::parse(test_vector.path_in);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
-            assert_eq!(test_vector.path_out(), uri.path());
+
+            assert_eq!(&test_vector.path_out, uri.path());
         }
     }
 
@@ -832,60 +895,78 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn relative_vs_non_relative_references() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                is_relative_reference: bool,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("http://www.example.com/", false).into(),
-            ("http://www.example.com", false).into(),
-            ("/", true).into(),
-            ("foo", true).into(),
+        struct Test {
+            uri_string: &'static str,
+            is_relative_reference: bool,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "http://www.example.com/",
+                is_relative_reference: false,
+            },
+            Test {
+                uri_string: "http://www.example.com",
+                is_relative_reference: false,
+            },
+            Test {
+                uri_string: "/",
+                is_relative_reference: true,
+            },
+            Test {
+                uri_string: "foo",
+                is_relative_reference: true,
+            },
         ];
         for test_vector in test_vectors {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
             assert_eq!(
-                *test_vector.is_relative_reference(),
+                test_vector.is_relative_reference,
                 uri.is_relative_reference()
             );
         }
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::from_over_into)]
     fn relative_vs_non_relative_paths() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                contains_relative_path: bool,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("http://www.example.com/", false).into(),
-            ("http://www.example.com", false).into(),
-            ("/", false).into(),
-            ("foo", true).into(),
+        struct Test {
+            uri_string: &'static str,
+            contains_relative_path: bool,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "http://www.example.com/",
+                contains_relative_path: false,
+            },
+            Test {
+                uri_string: "http://www.example.com",
+                contains_relative_path: false,
+            },
+            Test {
+                uri_string: "/",
+                contains_relative_path: false,
+            },
+            Test {
+                uri_string: "foo",
+                contains_relative_path: true,
+            },
             // This is only a valid test vector if we understand
             // correctly that an empty string IS a valid
             // "relative reference" URI with an empty path.
-            ("", true).into(),
+            Test {
+                uri_string: "",
+                contains_relative_path: true,
+            },
         ];
         for (test_index, test_vector) in test_vectors.iter().enumerate() {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
             assert_eq!(
-                *test_vector.contains_relative_path(),
+                test_vector.contains_relative_path,
                 uri.contains_relative_path(),
                 "{}",
                 test_index
@@ -894,74 +975,74 @@ mod tests {
     }
 
     #[test]
-    // NOTE: These lints are disabled because they're triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::ref_option_ref)]
-    #[allow(clippy::from_over_into)]
     fn query_and_fragment_elements() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                host: &'static str,
-                query: Option<&'static str>,
-                fragment: Option<&'static str>,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("http://www.example.com/", "www.example.com", None, None).into(),
-            ("http://example.com?foo", "example.com", Some("foo"), None).into(),
-            (
-                "http://www.example.com#foo",
-                "www.example.com",
-                None,
-                Some("foo"),
-            )
-                .into(),
-            (
-                "http://www.example.com?foo#bar",
-                "www.example.com",
-                Some("foo"),
-                Some("bar"),
-            )
-                .into(),
-            (
-                "http://www.example.com?earth?day#bar",
-                "www.example.com",
-                Some("earth?day"),
-                Some("bar"),
-            )
-                .into(),
-            (
-                "http://www.example.com/spam?foo#bar",
-                "www.example.com",
-                Some("foo"),
-                Some("bar"),
-            )
-                .into(),
-            (
-                "http://www.example.com/?",
-                "www.example.com",
-                Some(""),
-                None,
-            )
-                .into(),
+        struct Test {
+            uri_string: &'static str,
+            host: &'static str,
+            query: Option<&'static str>,
+            fragment: Option<&'static str>,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "http://www.example.com/",
+                host: "www.example.com",
+                query: None,
+                fragment: None,
+            },
+            Test {
+                uri_string: "http://example.com?foo",
+                host: "example.com",
+                query: Some("foo"),
+                fragment: None,
+            },
+            Test {
+                uri_string: "http://www.example.com#foo",
+                host: "www.example.com",
+                query: None,
+                fragment: Some("foo"),
+            },
+            Test {
+                uri_string: "http://www.example.com?foo#bar",
+                host: "www.example.com",
+                query: Some("foo"),
+                fragment: Some("bar"),
+            },
+            Test {
+                uri_string: "http://www.example.com?earth?day#bar",
+                host: "www.example.com",
+                query: Some("earth?day"),
+                fragment: Some("bar"),
+            },
+            Test {
+                uri_string: "http://www.example.com/spam?foo#bar",
+                host: "www.example.com",
+                query: Some("foo"),
+                fragment: Some("bar"),
+            },
+            Test {
+                uri_string: "http://www.example.com/?",
+                host: "www.example.com",
+                query: Some(""),
+                fragment: None,
+            },
         ];
         for (test_index, test_vector) in test_vectors.iter().enumerate() {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
             assert_eq!(
-                Some(*test_vector.host()),
+                Some(test_vector.host),
                 uri.host_to_string().unwrap().as_deref()
             );
             assert_eq!(
-                *test_vector.query(),
+                test_vector.query,
                 uri.query_to_string().unwrap().as_deref(),
                 "{}",
                 test_index
             );
             assert_eq!(
-                *test_vector.fragment(),
+                test_vector.fragment,
                 uri.fragment_to_string().unwrap().as_deref()
             );
         }
@@ -984,29 +1065,43 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn scheme_barely_legal() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                scheme: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("h://www.example.com/", "h").into(),
-            ("x+://www.example.com/", "x+").into(),
-            ("y-://www.example.com/", "y-").into(),
-            ("z.://www.example.com/", "z.").into(),
-            ("aa://www.example.com/", "aa").into(),
-            ("a0://www.example.com/", "a0").into(),
+        struct Test {
+            uri_string: &'static str,
+            scheme: &'static str,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "h://www.example.com/",
+                scheme: "h",
+            },
+            Test {
+                uri_string: "x+://www.example.com/",
+                scheme: "x+",
+            },
+            Test {
+                uri_string: "y-://www.example.com/",
+                scheme: "y-",
+            },
+            Test {
+                uri_string: "z.://www.example.com/",
+                scheme: "z.",
+            },
+            Test {
+                uri_string: "aa://www.example.com/",
+                scheme: "aa",
+            },
+            Test {
+                uri_string: "a0://www.example.com/",
+                scheme: "a0",
+            },
         ];
         for test_vector in test_vectors {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
-            assert_eq!(Some(*test_vector.scheme()), uri.scheme());
+            assert_eq!(Some(test_vector.scheme), uri.scheme());
         }
     }
 
@@ -1076,32 +1171,39 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn path_barely_legal() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                path: Vec<&'static [u8]>,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("/:/foo", vec![&b""[..], &b":"[..], &b"foo"[..]]).into(),
-            ("bob@/foo", vec![&b"bob@"[..], &b"foo"[..]]).into(),
-            ("hello!", vec![&b"hello!"[..]]).into(),
-            ("urn:hello,%20w%6Frld", vec![&b"hello, world"[..]]).into(),
-            (
-                "//example.com/foo/(bar)/",
-                vec![&b""[..], &b"foo"[..], &b"(bar)"[..], &b""[..]],
-            )
-                .into(),
+        struct Test {
+            uri_string: &'static str,
+            path: Vec<&'static [u8]>,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "/:/foo",
+                path: vec![&b""[..], &b":"[..], &b"foo"[..]],
+            },
+            Test {
+                uri_string: "bob@/foo",
+                path: vec![&b"bob@"[..], &b"foo"[..]],
+            },
+            Test {
+                uri_string: "hello!",
+                path: vec![&b"hello!"[..]],
+            },
+            Test {
+                uri_string: "urn:hello,%20w%6Frld",
+                path: vec![&b"hello, world"[..]],
+            },
+            Test {
+                uri_string: "//example.com/foo/(bar)/",
+                path: vec![&b""[..], &b"foo"[..], &b"(bar)"[..], &b""[..]],
+            },
         ];
         for test_vector in test_vectors {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
-            assert_eq!(test_vector.path(), uri.path());
+            assert_eq!(&test_vector.path, uri.path());
         }
     }
 
@@ -1136,30 +1238,44 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn query_barely_legal() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                query: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("/?:/foo", ":/foo").into(),
-            ("?bob@/foo", "bob@/foo").into(),
-            ("?hello!", "hello!").into(),
-            ("urn:?hello,%20w%6Frld", "hello, world").into(),
-            ("//example.com/foo?(bar)/", "(bar)/").into(),
-            ("http://www.example.com/?foo?bar", "foo?bar").into(),
+        struct Test {
+            uri_string: &'static str,
+            query: &'static str,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "/?:/foo",
+                query: ":/foo",
+            },
+            Test {
+                uri_string: "?bob@/foo",
+                query: "bob@/foo",
+            },
+            Test {
+                uri_string: "?hello!",
+                query: "hello!",
+            },
+            Test {
+                uri_string: "urn:?hello,%20w%6Frld",
+                query: "hello, world",
+            },
+            Test {
+                uri_string: "//example.com/foo?(bar)/",
+                query: "(bar)/",
+            },
+            Test {
+                uri_string: "http://www.example.com/?foo?bar",
+                query: "foo?bar",
+            },
         ];
         for (test_index, test_vector) in test_vectors.iter().enumerate() {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
             assert_eq!(
-                Some(*test_vector.query()),
+                Some(test_vector.query),
                 uri.query_to_string().unwrap().as_deref(),
                 "{}",
                 test_index
@@ -1198,131 +1314,281 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn fragment_barely_legal() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                fragment: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("/#:/foo", ":/foo").into(),
-            ("#bob@/foo", "bob@/foo").into(),
-            ("#hello!", "hello!").into(),
-            ("urn:#hello,%20w%6Frld", "hello, world").into(),
-            ("//example.com/foo#(bar)/", "(bar)/").into(),
-            ("http://www.example.com/#foo?bar", "foo?bar").into(),
+        struct Test {
+            uri_string: &'static str,
+            fragment: &'static str,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "/#:/foo",
+                fragment: ":/foo",
+            },
+            Test {
+                uri_string: "#bob@/foo",
+                fragment: "bob@/foo",
+            },
+            Test {
+                uri_string: "#hello!",
+                fragment: "hello!",
+            },
+            Test {
+                uri_string: "urn:#hello,%20w%6Frld",
+                fragment: "hello, world",
+            },
+            Test {
+                uri_string: "//example.com/foo#(bar)/",
+                fragment: "(bar)/",
+            },
+            Test {
+                uri_string: "http://www.example.com/#foo?bar",
+                fragment: "foo?bar",
+            },
         ];
         for test_vector in test_vectors {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
             assert_eq!(
-                Some(*test_vector.fragment()),
+                Some(test_vector.fragment),
                 uri.fragment_to_string().unwrap().as_deref()
             );
         }
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn paths_with_percent_encoded_characters() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                path_first_segment: &'static [u8],
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("%41", &b"A"[..]).into(),
-            ("%4A", &b"J"[..]).into(),
-            ("%4a", &b"J"[..]).into(),
-            ("%bc", &b"\xBC"[..]).into(),
-            ("%Bc", &b"\xBC"[..]).into(),
-            ("%bC", &b"\xBC"[..]).into(),
-            ("%BC", &b"\xBC"[..]).into(),
-            ("%41%42%43", &b"ABC"[..]).into(),
-            ("%41%4A%43%4b", &b"AJCK"[..]).into(),
+        struct Test {
+            uri_string: &'static str,
+            path_first_segment: &'static [u8],
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "%41",
+                path_first_segment: &b"A"[..],
+            },
+            Test {
+                uri_string: "%4A",
+                path_first_segment: &b"J"[..],
+            },
+            Test {
+                uri_string: "%4a",
+                path_first_segment: &b"J"[..],
+            },
+            Test {
+                uri_string: "%bc",
+                path_first_segment: &b"\xBC"[..],
+            },
+            Test {
+                uri_string: "%Bc",
+                path_first_segment: &b"\xBC"[..],
+            },
+            Test {
+                uri_string: "%bC",
+                path_first_segment: &b"\xBC"[..],
+            },
+            Test {
+                uri_string: "%BC",
+                path_first_segment: &b"\xBC"[..],
+            },
+            Test {
+                uri_string: "%41%42%43",
+                path_first_segment: &b"ABC"[..],
+            },
+            Test {
+                uri_string: "%41%4A%43%4b",
+                path_first_segment: &b"AJCK"[..],
+            },
         ];
         for test_vector in test_vectors {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let uri = uri.unwrap();
-            assert_eq!(
-                test_vector.path_first_segment(),
-                uri.path().first().unwrap()
-            );
+            assert_eq!(test_vector.path_first_segment, uri.path().first().unwrap());
         }
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::from_over_into)]
+    #[allow(clippy::too_many_lines)]
     fn normalize_path() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                normalized_path: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("/a/b/c/./../../g", "/a/g").into(),
-            ("mid/content=5/../6", "mid/6").into(),
-            ("http://example.com/a/../b", "/b").into(),
-            ("http://example.com/../b", "/b").into(),
-            ("http://example.com/a/../b/", "/b/").into(),
-            ("http://example.com/a/../../b", "/b").into(),
-            ("./a/b", "a/b").into(),
-            ("", "").into(),
-            (".", "").into(),
-            ("./", "").into(),
-            ("..", "").into(),
-            ("../", "").into(),
-            ("/", "/").into(),
-            ("a/b/..", "a/").into(),
-            ("a/b/../", "a/").into(),
-            ("a/b/.", "a/b/").into(),
-            ("a/b/./", "a/b/").into(),
-            ("a/b/./c", "a/b/c").into(),
-            ("a/b/./c/", "a/b/c/").into(),
-            ("/a/b/..", "/a/").into(),
-            ("/a/b/.", "/a/b/").into(),
-            ("/a/b/./c", "/a/b/c").into(),
-            ("/a/b/./c/", "/a/b/c/").into(),
-            ("./a/b/..", "a/").into(),
-            ("./a/b/.", "a/b/").into(),
-            ("./a/b/./c", "a/b/c").into(),
-            ("./a/b/./c/", "a/b/c/").into(),
-            ("../a/b/..", "a/").into(),
-            ("../a/b/.", "a/b/").into(),
-            ("../a/b/./c", "a/b/c").into(),
-            ("../a/b/./c/", "a/b/c/").into(),
-            ("../a/b/../c", "a/c").into(),
-            ("../a/b/./../c/", "a/c/").into(),
-            ("../a/b/./../c", "a/c").into(),
-            ("../a/b/./../c/", "a/c/").into(),
-            ("../a/b/.././c/", "a/c/").into(),
-            ("../a/b/.././c", "a/c").into(),
-            ("../a/b/.././c/", "a/c/").into(),
-            ("/./c/d", "/c/d").into(),
-            ("/../c/d", "/c/d").into(),
+        struct Test {
+            uri_string: &'static str,
+            normalized_path: &'static str,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                uri_string: "/a/b/c/./../../g",
+                normalized_path: "/a/g",
+            },
+            Test {
+                uri_string: "mid/content=5/../6",
+                normalized_path: "mid/6",
+            },
+            Test {
+                uri_string: "http://example.com/a/../b",
+                normalized_path: "/b",
+            },
+            Test {
+                uri_string: "http://example.com/../b",
+                normalized_path: "/b",
+            },
+            Test {
+                uri_string: "http://example.com/a/../b/",
+                normalized_path: "/b/",
+            },
+            Test {
+                uri_string: "http://example.com/a/../../b",
+                normalized_path: "/b",
+            },
+            Test {
+                uri_string: "./a/b",
+                normalized_path: "a/b",
+            },
+            Test {
+                uri_string: "",
+                normalized_path: "",
+            },
+            Test {
+                uri_string: ".",
+                normalized_path: "",
+            },
+            Test {
+                uri_string: "./",
+                normalized_path: "",
+            },
+            Test {
+                uri_string: "..",
+                normalized_path: "",
+            },
+            Test {
+                uri_string: "../",
+                normalized_path: "",
+            },
+            Test {
+                uri_string: "/",
+                normalized_path: "/",
+            },
+            Test {
+                uri_string: "a/b/..",
+                normalized_path: "a/",
+            },
+            Test {
+                uri_string: "a/b/../",
+                normalized_path: "a/",
+            },
+            Test {
+                uri_string: "a/b/.",
+                normalized_path: "a/b/",
+            },
+            Test {
+                uri_string: "a/b/./",
+                normalized_path: "a/b/",
+            },
+            Test {
+                uri_string: "a/b/./c",
+                normalized_path: "a/b/c",
+            },
+            Test {
+                uri_string: "a/b/./c/",
+                normalized_path: "a/b/c/",
+            },
+            Test {
+                uri_string: "/a/b/..",
+                normalized_path: "/a/",
+            },
+            Test {
+                uri_string: "/a/b/.",
+                normalized_path: "/a/b/",
+            },
+            Test {
+                uri_string: "/a/b/./c",
+                normalized_path: "/a/b/c",
+            },
+            Test {
+                uri_string: "/a/b/./c/",
+                normalized_path: "/a/b/c/",
+            },
+            Test {
+                uri_string: "./a/b/..",
+                normalized_path: "a/",
+            },
+            Test {
+                uri_string: "./a/b/.",
+                normalized_path: "a/b/",
+            },
+            Test {
+                uri_string: "./a/b/./c",
+                normalized_path: "a/b/c",
+            },
+            Test {
+                uri_string: "./a/b/./c/",
+                normalized_path: "a/b/c/",
+            },
+            Test {
+                uri_string: "../a/b/..",
+                normalized_path: "a/",
+            },
+            Test {
+                uri_string: "../a/b/.",
+                normalized_path: "a/b/",
+            },
+            Test {
+                uri_string: "../a/b/./c",
+                normalized_path: "a/b/c",
+            },
+            Test {
+                uri_string: "../a/b/./c/",
+                normalized_path: "a/b/c/",
+            },
+            Test {
+                uri_string: "../a/b/../c",
+                normalized_path: "a/c",
+            },
+            Test {
+                uri_string: "../a/b/./../c/",
+                normalized_path: "a/c/",
+            },
+            Test {
+                uri_string: "../a/b/./../c",
+                normalized_path: "a/c",
+            },
+            Test {
+                uri_string: "../a/b/./../c/",
+                normalized_path: "a/c/",
+            },
+            Test {
+                uri_string: "../a/b/.././c/",
+                normalized_path: "a/c/",
+            },
+            Test {
+                uri_string: "../a/b/.././c",
+                normalized_path: "a/c",
+            },
+            Test {
+                uri_string: "../a/b/.././c/",
+                normalized_path: "a/c/",
+            },
+            Test {
+                uri_string: "/./c/d",
+                normalized_path: "/c/d",
+            },
+            Test {
+                uri_string: "/../c/d",
+                normalized_path: "/c/d",
+            },
         ];
         for test_vector in test_vectors.iter() {
-            let uri = Uri::parse(test_vector.uri_string());
+            let uri = Uri::parse(test_vector.uri_string);
             assert!(uri.is_ok());
             let mut uri = uri.unwrap();
             uri.normalize();
             assert_eq!(
-                *test_vector.normalized_path(),
+                *test_vector.normalized_path,
                 uri.path_to_string().unwrap(),
                 "{}",
-                test_vector.uri_string()
+                test_vector.uri_string
             );
         }
     }
@@ -1336,67 +1602,198 @@ mod tests {
         let uri1 = uri1.unwrap();
         let uri2 = Uri::parse("eXAMPLE://a/./b/../b/%63/%7bfoo%7d");
         assert!(uri2.is_ok());
+
         let mut uri2 = uri2.unwrap();
-        assert_ne!(uri1, uri2);
+        assert_ne!(uri1, uri2, "\"example://a/b/c/%7Bfoo%7D\" and \"eXAMPLE://a/./b/../b/%63/%7bfoo%7d\" should not be equal");
+
+        dbg!(&uri1);
+        dbg!(&uri2);
+
         uri2.normalize();
         assert_eq!(uri1, uri2);
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::from_over_into)]
+    #[allow(clippy::too_many_lines)]
     fn reference_resolution() {
-        named_tuple!(
-            struct TestVector {
-                base_string: &'static str,
-                relative_reference_string: &'static str,
-                target_string: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
+        struct Test {
+            base_string: &'static str,
+            relative_reference_string: &'static str,
+            target_string: &'static str,
+        }
+        let test_vectors: &[Test] = &[
             // These are all taken from section 5.4.1
             // of RFC 3986 (https://tools.ietf.org/html/rfc3986).
-            ("http://a/b/c/d;p?q", "g:h", "g:h").into(),
-            ("http://a/b/c/d;p?q", "g", "http://a/b/c/g").into(),
-            ("http://a/b/c/d;p?q", "./g", "http://a/b/c/g").into(),
-            ("http://a/b/c/d;p?q", "g/", "http://a/b/c/g/").into(),
-            ("http://a/b/c/d;p?q", "//g", "http://g").into(),
-            ("http://a/b/c/d;p?q", "?y", "http://a/b/c/d;p?y").into(),
-            ("http://a/b/c/d;p?q", "g?y", "http://a/b/c/g?y").into(),
-            ("http://a/b/c/d;p?q", "#s", "http://a/b/c/d;p?q#s").into(),
-            ("http://a/b/c/d;p?q", "g#s", "http://a/b/c/g#s").into(),
-            ("http://a/b/c/d;p?q", "g?y#s", "http://a/b/c/g?y#s").into(),
-            ("http://a/b/c/d;p?q", ";x", "http://a/b/c/;x").into(),
-            ("http://a/b/c/d;p?q", "g;x", "http://a/b/c/g;x").into(),
-            ("http://a/b/c/d;p?q", "g;x?y#s", "http://a/b/c/g;x?y#s").into(),
-            ("http://a/b/c/d;p?q", "", "http://a/b/c/d;p?q").into(),
-            ("http://a/b/c/d;p?q", ".", "http://a/b/c/").into(),
-            ("http://a/b/c/d;p?q", "./", "http://a/b/c/").into(),
-            ("http://a/b/c/d;p?q", "..", "http://a/b/").into(),
-            ("http://a/b/c/d;p?q", "../", "http://a/b/").into(),
-            ("http://a/b/c/d;p?q", "../g", "http://a/b/g").into(),
-            ("http://a/b/c/d;p?q", "../..", "http://a").into(),
-            ("http://a/b/c/d;p?q", "../../", "http://a").into(),
-            ("http://a/b/c/d;p?q", "../../g", "http://a/g").into(),
-            // Here are some examples of our own.
-            ("foo", "bar", "bar").into(),
-            ("http://example.com", "foo", "http://example.com/foo").into(),
-            ("http://example.com/", "foo", "http://example.com/foo").into(),
-            ("http://example.com", "foo/", "http://example.com/foo/").into(),
-            ("http://example.com/", "foo/", "http://example.com/foo/").into(),
-            ("http://example.com", "/foo", "http://example.com/foo").into(),
-            ("http://example.com/", "/foo", "http://example.com/foo").into(),
-            ("http://example.com", "/foo/", "http://example.com/foo/").into(),
-            ("http://example.com/", "/foo/", "http://example.com/foo/").into(),
-            ("http://example.com/", "?foo", "http://example.com/?foo").into(),
-            ("http://example.com/", "#foo", "http://example.com/#foo").into(),
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g:h",
+                target_string: "g:h",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g",
+                target_string: "http://a/b/c/g",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "./g",
+                target_string: "http://a/b/c/g",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g/",
+                target_string: "http://a/b/c/g/",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "//g",
+                target_string: "http://g",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "?y",
+                target_string: "http://a/b/c/d;p?y",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g?y",
+                target_string: "http://a/b/c/g?y",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "#s",
+                target_string: "http://a/b/c/d;p?q#s",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g#s",
+                target_string: "http://a/b/c/g#s",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g?y#s",
+                target_string: "http://a/b/c/g?y#s",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: ";x",
+                target_string: "http://a/b/c/;x",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g;x",
+                target_string: "http://a/b/c/g;x",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "g;x?y#s",
+                target_string: "http://a/b/c/g;x?y#s",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "",
+                target_string: "http://a/b/c/d;p?q",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: ".",
+                target_string: "http://a/b/c/",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "./",
+                target_string: "http://a/b/c/",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "..",
+                target_string: "http://a/b/",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "../",
+                target_string: "http://a/b/",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "../g",
+                target_string: "http://a/b/g",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "../..",
+                target_string: "http://a",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "../../",
+                target_string: "http://a",
+            },
+            Test {
+                base_string: "http://a/b/c/d;p?q",
+                relative_reference_string: "../../g",
+                target_string: "http://a/g",
+            },
+            Test {
+                base_string: "foo",
+                relative_reference_string: "bar",
+                target_string: "bar",
+            },
+            Test {
+                base_string: "http://example.com",
+                relative_reference_string: "foo",
+                target_string: "http://example.com/foo",
+            },
+            Test {
+                base_string: "http://example.com/",
+                relative_reference_string: "foo",
+                target_string: "http://example.com/foo",
+            },
+            Test {
+                base_string: "http://example.com",
+                relative_reference_string: "foo/",
+                target_string: "http://example.com/foo/",
+            },
+            Test {
+                base_string: "http://example.com/",
+                relative_reference_string: "foo/",
+                target_string: "http://example.com/foo/",
+            },
+            Test {
+                base_string: "http://example.com",
+                relative_reference_string: "/foo",
+                target_string: "http://example.com/foo",
+            },
+            Test {
+                base_string: "http://example.com/",
+                relative_reference_string: "/foo",
+                target_string: "http://example.com/foo",
+            },
+            Test {
+                base_string: "http://example.com",
+                relative_reference_string: "/foo/",
+                target_string: "http://example.com/foo/",
+            },
+            Test {
+                base_string: "http://example.com/",
+                relative_reference_string: "/foo/",
+                target_string: "http://example.com/foo/",
+            },
+            Test {
+                base_string: "http://example.com/",
+                relative_reference_string: "?foo",
+                target_string: "http://example.com/?foo",
+            },
+            Test {
+                base_string: "http://example.com/",
+                relative_reference_string: "#foo",
+                target_string: "http://example.com/#foo",
+            },
         ];
         for test_vector in test_vectors {
-            let base_uri = Uri::parse(test_vector.base_string()).unwrap();
-            let relative_reference_uri =
-                Uri::parse(test_vector.relative_reference_string()).unwrap();
-            let expected_target_uri = Uri::parse(test_vector.target_string()).unwrap();
+            let base_uri = Uri::parse(test_vector.base_string).unwrap();
+            let relative_reference_uri = Uri::parse(test_vector.relative_reference_string).unwrap();
+            let expected_target_uri = Uri::parse(test_vector.target_string).unwrap();
             let actual_target_uri = dbg!(base_uri.resolve(&relative_reference_uri));
             assert_eq!(expected_target_uri, actual_target_uri);
         }
@@ -1406,103 +1803,384 @@ mod tests {
     fn empty_path_in_uri_with_authority_is_equivalent_to_slash_only_path() {
         let uri1 = Uri::parse("http://example.com");
         assert!(uri1.is_ok());
+
         let uri1 = uri1.unwrap();
         let uri2 = Uri::parse("http://example.com/");
+
         assert!(uri2.is_ok());
         let uri2 = uri2.unwrap();
-        assert_eq!(uri1, uri2);
+
+        assert_eq!(uri1, uri2, "uri1 and uri2 should be equivalent");
+
         let uri1 = Uri::parse("//example.com");
         assert!(uri1.is_ok());
+
         let uri1 = uri1.unwrap();
         let uri2 = Uri::parse("//example.com/");
         assert!(uri2.is_ok());
+
         let uri2 = uri2.unwrap();
         assert_eq!(uri1, uri2);
     }
 
     #[test]
-    // NOTE: These lints have to be disabled at the test level because they're
-    // triggered inside the `named_tuple!` macro expansion.
-    #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::ref_option_ref)]
-    #[allow(clippy::from_over_into)]
+    #[allow(clippy::too_many_lines)]
     fn generate_string() {
-        named_tuple!(
-            struct TestVector {
-                scheme: Option<&'static str>,
-                user_info: Option<&'static str>,
-                host: Option<&'static str>,
-                port: Option<u16>,
-                path: &'static str,
-                query: Option<&'static str>,
-                fragment: Option<&'static str>,
-                expected_uri_string: &'static str,
-            }
-        );
-        #[rustfmt::skip]
-        let test_vectors: &[TestVector] = &[
+        struct Test {
+            scheme: Option<&'static str>,
+            user_info: Option<&'static str>,
+            host: Option<&'static str>,
+            port: Option<u16>,
+            path: &'static str,
+            query: Option<&'static str>,
+            fragment: Option<&'static str>,
+            expected_uri_string: &'static str,
+        }
+        // #[rustfmt::skip]
+        let test_vectors: &[Test] = &[
             // general test vectors
-            // scheme      user_info     host                     port        path         query           fragment     expected_uri_string
-            (Some("http"), Some("bob"), Some("www.example.com"), Some(8080), "/abc/def",  Some("foobar"), Some("ch2"), "http://bob@www.example.com:8080/abc/def?foobar#ch2").into(),
-            (Some("http"), Some("bob"), Some("www.example.com"), Some(0),    "",          Some("foobar"), Some("ch2"), "http://bob@www.example.com:0?foobar#ch2").into(),
-            (Some("http"), Some("bob"), Some("www.example.com"), Some(0),    "",          Some("foobar"), Some(""),    "http://bob@www.example.com:0?foobar#").into(),
-            (None,         None,        Some("example.com"),     None,       "",          Some("bar"),    None,        "//example.com?bar").into(),
-            (None,         None,        Some("example.com"),     None,       "",          Some(""),       None,        "//example.com?").into(),
-            (None,         None,        Some("example.com"),     None,       "",          None,           None,        "//example.com").into(),
-            (None,         None,        Some("example.com"),     None,       "/",         None,           None,        "//example.com/").into(),
-            (None,         None,        Some("example.com"),     None,       "/xyz",      None,           None,        "//example.com/xyz").into(),
-            (None,         None,        Some("example.com"),     None,       "/xyz/",     None,           None,        "//example.com/xyz/").into(),
-            (None,         None,        None,                    None,       "/",         None,           None,        "/").into(),
-            (None,         None,        None,                    None,       "/xyz",      None,           None,        "/xyz").into(),
-            (None,         None,        None,                    None,       "/xyz/",     None,           None,        "/xyz/").into(),
-            (None,         None,        None,                    None,       "",          None,           None,        "").into(),
-            (None,         None,        None,                    None,       "xyz",       None,           None,        "xyz").into(),
-            (None,         None,        None,                    None,       "xyz/",      None,           None,        "xyz/").into(),
-            (None,         None,        None,                    None,       "",          Some("bar"),    None,        "?bar").into(),
-            (Some("http"), None,        None,                    None,       "",          Some("bar"),    None,        "http:?bar").into(),
-            (Some("http"), None,        None,                    None,       "",          None,           None,        "http:").into(),
-            (Some("http"), None,        Some("::1"),             None,       "",          None,           None,        "http://[::1]").into(),
-            (Some("http"), None,        Some("::1.2.3.4"),       None,       "",          None,           None,        "http://[::1.2.3.4]").into(),
-            (Some("http"), None,        Some("1.2.3.4"),         None,       "",          None,           None,        "http://1.2.3.4").into(),
-            (None,         None,        None,                    None,       "",          None,           None,        "").into(),
-            (Some("http"), Some("bob"), None,                    None,       "",          Some("foobar"), None,        "http://bob@?foobar").into(),
-            (None,         Some("bob"), None,                    None,       "",          Some("foobar"), None,        "//bob@?foobar").into(),
-            (None,         Some("bob"), None,                    None,       "",          None,           None,        "//bob@").into(),
-
-            // percent-encoded character test vectors
-            // scheme      user_info      host                     port        path        query            fragment     expected_uri_string
-            (Some("http"), Some("b b"),  Some("www.example.com"), Some(8080), "/abc/def", Some("foobar"),  Some("ch2"), "http://b%20b@www.example.com:8080/abc/def?foobar#ch2").into(),
-            (Some("http"), Some("bob"),  Some("www.e ample.com"), Some(8080), "/abc/def", Some("foobar"),  Some("ch2"), "http://bob@www.e%20ample.com:8080/abc/def?foobar#ch2").into(),
-            (Some("http"), Some("bob"),  Some("www.example.com"), Some(8080), "/a c/def", Some("foobar"),  Some("ch2"), "http://bob@www.example.com:8080/a%20c/def?foobar#ch2").into(),
-            (Some("http"), Some("bob"),  Some("www.example.com"), Some(8080), "/abc/def", Some("foo ar"),  Some("ch2"), "http://bob@www.example.com:8080/abc/def?foo%20ar#ch2").into(),
-            (Some("http"), Some("bob"),  Some("www.example.com"), Some(8080), "/abc/def", Some("foobar"),  Some("c 2"), "http://bob@www.example.com:8080/abc/def?foobar#c%202").into(),
-            (Some("http"), Some("bob"),  Some("ሴ.example.com"),   Some(8080), "/abc/def", Some("foobar"),  None,        "http://bob@%E1%88%B4.example.com:8080/abc/def?foobar").into(),
-
-            // normalization of IPv6 address hex digits
-            // scheme      user_info     host                   port        path        query           fragment     expected_uri_string
-            (Some("http"), Some("bob"), Some("fFfF::1"),       Some(8080), "/abc/def", Some("foobar"), Some("c 2"), "http://bob@[ffff::1]:8080/abc/def?foobar#c%202").into(),
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.example.com"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foobar"),
+                fragment: Some("ch2"),
+                expected_uri_string: "http://bob@www.example.com:8080/abc/def?foobar#ch2",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.example.com"),
+                port: Some(0),
+                path: "",
+                query: Some("foobar"),
+                fragment: Some("ch2"),
+                expected_uri_string: "http://bob@www.example.com:0?foobar#ch2",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.example.com"),
+                port: Some(0),
+                path: "",
+                query: Some("foobar"),
+                fragment: Some(""),
+                expected_uri_string: "http://bob@www.example.com:0?foobar#",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: Some("example.com"),
+                port: None,
+                path: "",
+                query: Some("bar"),
+                fragment: None,
+                expected_uri_string: "//example.com?bar",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: Some("example.com"),
+                port: None,
+                path: "",
+                query: Some(""),
+                fragment: None,
+                expected_uri_string: "//example.com?",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: Some("example.com"),
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "//example.com",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: Some("example.com"),
+                port: None,
+                path: "/",
+                query: None,
+                fragment: None,
+                expected_uri_string: "//example.com/",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: Some("example.com"),
+                port: None,
+                path: "/xyz",
+                query: None,
+                fragment: None,
+                expected_uri_string: "//example.com/xyz",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: Some("example.com"),
+                port: None,
+                path: "/xyz/",
+                query: None,
+                fragment: None,
+                expected_uri_string: "//example.com/xyz/",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "/",
+                query: None,
+                fragment: None,
+                expected_uri_string: "/",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "/xyz",
+                query: None,
+                fragment: None,
+                expected_uri_string: "/xyz",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "/xyz/",
+                query: None,
+                fragment: None,
+                expected_uri_string: "/xyz/",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "xyz",
+                query: None,
+                fragment: None,
+                expected_uri_string: "xyz",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "xyz/",
+                query: None,
+                fragment: None,
+                expected_uri_string: "xyz/",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "",
+                query: Some("bar"),
+                fragment: None,
+                expected_uri_string: "?bar",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: None,
+                host: None,
+                port: None,
+                path: "",
+                query: Some("bar"),
+                fragment: None,
+                expected_uri_string: "http:?bar",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: None,
+                host: None,
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "http:",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: None,
+                host: Some("::1"),
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "http://[::1]",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: None,
+                host: Some("::1.2.3.4"),
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "http://[::1.2.3.4]",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: None,
+                host: Some("1.2.3.4"),
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "http://1.2.3.4",
+            },
+            Test {
+                scheme: None,
+                user_info: None,
+                host: None,
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: None,
+                port: None,
+                path: "",
+                query: Some("foobar"),
+                fragment: None,
+                expected_uri_string: "http://bob@?foobar",
+            },
+            Test {
+                scheme: None,
+                user_info: Some("bob"),
+                host: None,
+                port: None,
+                path: "",
+                query: Some("foobar"),
+                fragment: None,
+                expected_uri_string: "//bob@?foobar",
+            },
+            Test {
+                scheme: None,
+                user_info: Some("bob"),
+                host: None,
+                port: None,
+                path: "",
+                query: None,
+                fragment: None,
+                expected_uri_string: "//bob@",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("b b"),
+                host: Some("www.example.com"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foobar"),
+                fragment: Some("ch2"),
+                expected_uri_string: "http://b%20b@www.example.com:8080/abc/def?foobar#ch2",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.e ample.com"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foobar"),
+                fragment: Some("ch2"),
+                expected_uri_string: "http://bob@www.e%20ample.com:8080/abc/def?foobar#ch2",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.example.com"),
+                port: Some(8080),
+                path: "/a c/def",
+                query: Some("foobar"),
+                fragment: Some("ch2"),
+                expected_uri_string: "http://bob@www.example.com:8080/a%20c/def?foobar#ch2",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.example.com"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foo ar"),
+                fragment: Some("ch2"),
+                expected_uri_string: "http://bob@www.example.com:8080/abc/def?foo%20ar#ch2",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("www.example.com"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foobar"),
+                fragment: Some("c 2"),
+                expected_uri_string: "http://bob@www.example.com:8080/abc/def?foobar#c%202",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("ሴ.example.com"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foobar"),
+                fragment: None,
+                expected_uri_string: "http://bob@%E1%88%B4.example.com:8080/abc/def?foobar",
+            },
+            Test {
+                scheme: Some("http"),
+                user_info: Some("bob"),
+                host: Some("fFfF::1"),
+                port: Some(8080),
+                path: "/abc/def",
+                query: Some("foobar"),
+                fragment: Some("c 2"),
+                expected_uri_string: "http://bob@[ffff::1]:8080/abc/def?foobar#c%202",
+            },
         ];
         for test_vector in test_vectors {
             let mut uri = Uri::default();
             assert!(uri
-                .set_scheme(test_vector.scheme().map(ToString::to_string))
+                .set_scheme(test_vector.scheme.map(ToString::to_string))
                 .is_ok());
-            if test_vector.user_info().is_some()
-                || test_vector.host().is_some()
-                || test_vector.port().is_some()
+            if test_vector.user_info.is_some()
+                || test_vector.host.is_some()
+                || test_vector.port.is_some()
             {
                 let mut authority = Authority::default();
-                authority.set_user_info(test_vector.user_info().map(Into::into));
-                authority.set_host(test_vector.host().unwrap_or_else(|| ""));
-                authority.set_port(*test_vector.port());
+                authority.set_user_info(test_vector.user_info.map(Into::into));
+                authority.set_host(test_vector.host.unwrap_or_else(|| ""));
+                authority.set_port(test_vector.port);
                 uri.set_authority(Some(authority));
             } else {
                 uri.set_authority(None);
             }
-            uri.set_path_from_str(test_vector.path());
-            uri.set_query(test_vector.query().map(Into::into));
-            uri.set_fragment(test_vector.fragment().map(Into::into));
-            assert_eq!(*test_vector.expected_uri_string(), uri.to_string());
+            uri.set_path_from_str(test_vector.path);
+            uri.set_query(test_vector.query.map(Into::into));
+            uri.set_fragment(test_vector.fragment.map(Into::into));
+            assert_eq!(*test_vector.expected_uri_string, uri.to_string());
         }
     }
 

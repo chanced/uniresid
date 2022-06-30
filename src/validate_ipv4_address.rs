@@ -1,10 +1,6 @@
 #![warn(clippy::pedantic)]
 
-use super::{
-    character_classes::DIGIT,
-    context::Context,
-    error::Error,
-};
+use super::{character_classes::DIGIT, context::Context, error::Error};
 
 struct Shared {
     num_groups: usize,
@@ -20,9 +16,7 @@ impl State {
     fn finalize(self) -> Result<(), Error> {
         match self {
             Self::NotInOctet(_) => Err(Error::TruncatedHost),
-            Self::ExpectDigitOrDot(state) => {
-                Self::finalize_expect_digit_or_dot(state)
-            },
+            Self::ExpectDigitOrDot(state) => Self::finalize_expect_digit_or_dot(state),
         }
     }
 
@@ -48,22 +42,14 @@ impl State {
         })
     }
 
-    fn next(
-        self,
-        c: char,
-    ) -> Result<Self, Error> {
+    fn next(self, c: char) -> Result<Self, Error> {
         match self {
             Self::NotInOctet(state) => Self::next_not_in_octet(state, c),
-            Self::ExpectDigitOrDot(state) => {
-                Self::next_expect_digit_or_dot(state, c)
-            },
+            Self::ExpectDigitOrDot(state) => Self::next_expect_digit_or_dot(state, c),
         }
     }
 
-    fn next_not_in_octet(
-        state: Shared,
-        c: char,
-    ) -> Result<Self, Error> {
+    fn next_not_in_octet(state: Shared, c: char) -> Result<Self, Error> {
         let mut state = state;
         if DIGIT.contains(&c) {
             state.octet_buffer.push(c);
@@ -73,10 +59,7 @@ impl State {
         }
     }
 
-    fn next_expect_digit_or_dot(
-        state: Shared,
-        c: char,
-    ) -> Result<Self, Error> {
+    fn next_expect_digit_or_dot(state: Shared, c: char) -> Result<Self, Error> {
         let mut state = state;
         if c == '.' {
             state.num_groups += 1;
@@ -101,7 +84,11 @@ pub fn validate_ipv4_address<T>(address: T) -> Result<(), Error>
 where
     T: AsRef<str>,
 {
-    address.as_ref().chars().try_fold(State::new(), State::next)?.finalize()
+    address
+        .as_ref()
+        .chars()
+        .try_fold(State::new(), State::next)?
+        .finalize()
 }
 
 #[cfg(test)]
@@ -127,34 +114,53 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::from_over_into)]
     fn bad() {
-        named_tuple!(
-            struct TestVector {
-                address_string: &'static str,
-                expected_error: Error,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("1.2.x.4", Error::IllegalCharacter(Context::Ipv4Address)).into(),
-            ("1.2.3.4.8", Error::TooManyAddressParts).into(),
-            ("1.2.3", Error::TooFewAddressParts).into(),
-            ("1.2.3.", Error::TruncatedHost).into(),
-            ("1.2.3.256", Error::InvalidDecimalOctet).into(),
-            ("1.2.3.-4", Error::IllegalCharacter(Context::Ipv4Address)).into(),
-            ("1.2.3. 4", Error::IllegalCharacter(Context::Ipv4Address)).into(),
-            ("1.2.3.4 ", Error::IllegalCharacter(Context::Ipv4Address)).into(),
+        struct Test {
+            addr: &'static str,
+            expected: Error,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                addr: "1.2.x.4",
+                expected: Error::IllegalCharacter(Context::Ipv4Address),
+            },
+            Test {
+                addr: "1.2.3.4.8",
+                expected: Error::TooManyAddressParts,
+            },
+            Test {
+                addr: "1.2.3",
+                expected: Error::TooFewAddressParts,
+            },
+            Test {
+                addr: "1.2.3.",
+                expected: Error::TruncatedHost,
+            },
+            Test {
+                addr: "1.2.3.256",
+                expected: Error::InvalidDecimalOctet,
+            },
+            Test {
+                addr: "1.2.3.-4",
+                expected: Error::IllegalCharacter(Context::Ipv4Address),
+            },
+            Test {
+                addr: "1.2.3. 4",
+                expected: Error::IllegalCharacter(Context::Ipv4Address),
+            },
+            Test {
+                addr: "1.2.3.4 ",
+                expected: Error::IllegalCharacter(Context::Ipv4Address),
+            },
         ];
         for test_vector in test_vectors {
-            let result = validate_ipv4_address(test_vector.address_string());
-            assert!(result.is_err(), "{}", test_vector.address_string());
+            let result = validate_ipv4_address(test_vector.addr);
+            assert!(result.is_err(), "{}", test_vector.addr);
             assert_eq!(
-                *test_vector.expected_error(),
+                test_vector.expected,
                 result.unwrap_err(),
                 "{}",
-                test_vector.address_string()
+                test_vector.addr
             );
         }
     }

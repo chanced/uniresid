@@ -16,10 +16,9 @@ use super::{
 /// ## Parsing an Authority into its components
 ///
 /// ```rust
-/// # extern crate uris;
-/// use uris::Authority;
+/// use uniresid::Authority;
 ///
-/// # fn main() -> Result<(), uris::Error> {
+/// # fn main() -> Result<(), uniresid::Error> {
 /// let authority = Authority::parse("nobody@www.example.com:8080")?;
 /// assert_eq!(Some("nobody".as_bytes()), authority.user_info());
 /// assert_eq!("www.example.com".as_bytes(), authority.host());
@@ -31,10 +30,9 @@ use super::{
 /// ## Generating a URI from its components
 ///
 /// ```rust
-/// # extern crate uris;
-/// use uris::Authority;
+/// use uniresid::Authority;
 ///
-/// # fn main() -> Result<(), uris::Error> {
+/// # fn main() -> Result<(), uniresid::Error> {
 /// let mut authority = Authority::default();
 /// authority.set_user_info(Some("nobody").map(Into::into));
 /// authority.set_host("www.example.com");
@@ -162,28 +160,31 @@ mod tests {
     use super::*;
 
     #[test]
-    // NOTE: These lints are disabled because they're triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::ref_option_ref)]
-    #[allow(clippy::from_over_into)]
     fn user_info() {
-        named_tuple!(
-            struct TestVector {
-                authority_string: &'static str,
-                user_info: Option<&'static str>,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            ("www.example.com", None).into(),
-            ("joe@www.example.com", Some("joe")).into(),
-            ("pepe:feelsbadman@www.example.com", Some("pepe:feelsbadman")).into(),
+        struct Test {
+            auth: &'static str,
+            user_info: Option<&'static str>,
+        }
+        let test_vectors: &[Test] = &[
+            Test {
+                auth: "www.example.com",
+                user_info: None,
+            },
+            Test {
+                auth: "joe@www.example.com",
+                user_info: Some("joe"),
+            },
+            Test {
+                auth: "pepe:feelsbadman@www.example.com",
+                user_info: Some("pepe:feelsbadman"),
+            },
         ];
         for test_vector in test_vectors {
-            let authority = Authority::parse(test_vector.authority_string());
+            let authority = Authority::parse(test_vector.auth);
             assert!(authority.is_ok());
             let authority = authority.unwrap();
             assert_eq!(
-                test_vector.user_info().map(str::as_bytes),
+                test_vector.user_info.map(str::as_bytes),
                 authority.user_info.as_ref().map(|v| &v[..])
             );
         }
@@ -199,17 +200,8 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::from_over_into)]
     fn user_info_barely_legal() {
-        named_tuple!(
-            struct TestVector {
-                uri_string: &'static str,
-                user_info: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
+        let test_vectors: &[(&str, &str)] = &[
             ("%41@www.example.com", "A").into(),
             ("@www.example.com", "").into(),
             ("!@www.example.com", "!").into(),
@@ -219,11 +211,11 @@ mod tests {
             (":@www.example.com", ":").into(),
         ];
         for test_vector in test_vectors {
-            let authority = Authority::parse(test_vector.uri_string());
+            let authority = Authority::parse(test_vector.0);
             assert!(authority.is_ok());
             let authority = authority.unwrap();
             assert_eq!(
-                Some(test_vector.user_info().as_bytes()),
+                Some(test_vector.1.as_bytes()),
                 authority.user_info.as_ref().map(|v| &v[..])
             );
         }
@@ -239,17 +231,9 @@ mod tests {
     }
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
     #[allow(clippy::from_over_into)]
     fn host_barely_legal() {
-        named_tuple!(
-            struct TestVector {
-                authority_string: &'static str,
-                host: &'static str,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
+        let test_vectors: &[(&str, &str)] = &[
             ("%41", "a").into(),
             ("", "").into(),
             ("!", "!").into(),
@@ -261,10 +245,10 @@ mod tests {
             ("[v7.aB]", "v7.aB").into(),
         ];
         for test_vector in test_vectors {
-            let authority = Authority::parse(test_vector.authority_string());
+            let authority = Authority::parse(test_vector.0);
             assert!(authority.is_ok());
             let authority = authority.unwrap();
-            assert_eq!(test_vector.host().as_bytes(), authority.host());
+            assert_eq!(test_vector.1.as_bytes(), authority.host());
         }
     }
 

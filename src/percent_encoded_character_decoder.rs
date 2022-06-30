@@ -15,10 +15,7 @@ impl PercentEncodedCharacterDecoder {
         }
     }
 
-    pub fn next(
-        &mut self,
-        c: char,
-    ) -> Result<Option<u8>, Error> {
+    pub fn next(&mut self, c: char) -> Result<Option<u8>, Error> {
         self.shift_in_hex_digit(c)?;
         self.digits_left -= 1;
         if self.digits_left == 0 {
@@ -35,10 +32,7 @@ impl PercentEncodedCharacterDecoder {
         self.digits_left = 2;
     }
 
-    fn shift_in_hex_digit(
-        &mut self,
-        c: char,
-    ) -> Result<(), Error> {
+    fn shift_in_hex_digit(&mut self, c: char) -> Result<(), Error> {
         self.decoded_character <<= 4;
         if let Some(ci) = c.to_digit(16) {
             self.decoded_character += u8::try_from(ci).unwrap();
@@ -56,30 +50,18 @@ mod tests {
     use super::*;
 
     #[test]
-    // NOTE: This lint is disabled because it's triggered inside the
-    // `named_tuple!` macro expansion.
-    #[allow(clippy::from_over_into)]
     fn good_sequences() {
-        named_tuple!(
-            struct TestVector {
-                sequence: [char; 2],
-                expected_output: u8,
-            }
-        );
-        let test_vectors: &[TestVector] = &[
-            (['4', '1'], b'A').into(),
-            (['5', 'A'], b'Z').into(),
-            (['6', 'e'], b'n').into(),
-            (['e', '1'], b'\xe1').into(),
-            (['C', 'A'], b'\xca').into(),
+        let test_vectors: &[([char; 2], u8)] = &[
+            (['4', '1'], b'A'),
+            (['5', 'A'], b'Z'),
+            (['6', 'e'], b'n'),
+            (['e', '1'], b'\xe1'),
+            (['C', 'A'], b'\xca'),
         ];
         for test_vector in test_vectors {
             let mut pec = PercentEncodedCharacterDecoder::new();
-            assert_eq!(Ok(None), pec.next(test_vector.sequence()[0]));
-            assert_eq!(
-                Ok(Some(*test_vector.expected_output())),
-                pec.next(test_vector.sequence()[1])
-            );
+            assert_eq!(Ok(None), pec.next(test_vector.0[0]));
+            assert_eq!(Ok(Some(test_vector.1)), pec.next(test_vector.0[1]));
         }
     }
 

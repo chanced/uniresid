@@ -1,7 +1,8 @@
+cargo-features = ["rename-dependency"]
 [package]
 name = "uniresid"
-version = "0.1.0"
-description = "Implementation of RFC 3986 - Uniform Resource Identifier (URI)"
+version = "0.1.1"
+description = "Uniform Resource Identifiers (URIs) - RFC 3986"
 authors = [
     "Chance Dinkins <chanceusc@gmail.com>",
     "Richard Walters <rwalters@digitalstirling.com>",
@@ -11,11 +12,18 @@ edition = "2021"
 license = "MIT"
 readme = "README.md"
 categories = ["parser-implementations", "web-programming"]
-keywords = ["uri", "parser"]
+keywords = ["uri", "parser", "rfc3986"]
 repository = "https://github.com/chanced/urident"
 exclude = ["notes.md"]
 
 [dependencies]
-named_tuple = "0.1"
 once_cell = "1.5"
 thiserror = "1.0"
+
+
+serde_ = { optional = true, version = "1", package = "serde" }
+url_ = { optional = true, version = "*", package = "url" }
+[features]
+default = ["serde", "url"]
+serde = ["serde_"]
+url = ["url_"]

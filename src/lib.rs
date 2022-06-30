@@ -22,8 +22,7 @@
 //! ## Parsing a URI into its components
 //!
 //! ```rust
-//! # extern crate uris;
-//! use uris::Uri;
+//! use uniresid::Uri;
 //!
 //! let uri = Uri::parse("http://www.example.com/foo?bar#baz").unwrap();
 //! let authority = uri.authority().unwrap();
@@ -40,11 +39,7 @@
 //! ## Generating a URI from its components
 //!
 //! ```rust
-//! # extern crate uris;
-//! use uris::{
-//!     Authority,
-//!     Uri,
-//! };
+//! use uniresid::{ Authority, Uri };
 //!
 //! let mut uri = Uri::default();
 //! assert!(uri.set_scheme(String::from("http")).is_ok());
@@ -63,24 +58,24 @@
 #![allow(clippy::non_ascii_literal)]
 #![warn(missing_docs)]
 
-#[cfg(test)]
-#[macro_use]
-extern crate named_tuple;
-
+mod absolute_uri;
+pub use absolute_uri::AbsoluteUri;
 mod authority;
+pub use authority::Authority;
+
 mod character_classes;
+
 mod codec;
+
 mod context;
+pub use context::Context;
+
 mod error;
+pub use error::Error;
+
 mod parse_host_port;
 mod percent_encoded_character_decoder;
 mod uri;
+pub use uri::Uri;
 mod validate_ipv4_address;
 mod validate_ipv6_address;
-
-pub use crate::{
-    authority::Authority,
-    context::Context,
-    error::Error,
-    uri::Uri,
-};
