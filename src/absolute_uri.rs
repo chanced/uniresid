@@ -17,13 +17,13 @@ impl AbsoluteUri {
 
     /// Borrow the authority (if any) of the URI.
     #[must_use = "authority not used"]
-    pub fn authority(&self) -> Option<&Authority> {
+    pub fn authority(&self) -> Option<Authority> {
         self.uri.authority()
     }
 
     /// Borrow the fragment (if any) of the URI.
     #[must_use]
-    pub fn fragment(&self) -> Option<&[u8]> {
+    pub fn fragment(&self) -> Option<Vec<u8>> {
         self.uri.fragment()
     }
 
@@ -41,7 +41,7 @@ impl AbsoluteUri {
 
     /// Borrow the host portion of the Authority (if any) of the URI.
     #[must_use]
-    pub fn host(&self) -> Option<&[u8]> {
+    pub fn host(&self) -> Option<Vec<u8>> {
         self.uri.host()
     }
 
@@ -144,7 +144,7 @@ impl AbsoluteUri {
 
     /// Borrow the query (if any) of the URI.
     #[must_use]
-    pub fn query(&self) -> Option<&[u8]> {
+    pub fn query(&self) -> Option<Vec<u8>> {
         self.uri.query()
     }
 
