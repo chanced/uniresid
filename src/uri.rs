@@ -1,4 +1,4 @@
-use crate::AbsoluteUri;
+use crate::{authority::AuthorityRanges, AbsoluteUri};
 
 use super::{
     authority::Authority,
@@ -10,7 +10,12 @@ use super::{
     context::Context,
     error::Error,
 };
-use std::{collections::HashSet, convert::TryFrom, ops::Deref};
+use std::{
+    collections::HashSet,
+    convert::TryFrom,
+    hash::Hash,
+    ops::{Deref, Range},
+};
 use std::{fmt::Write, string::FromUtf8Error};
 
 /// This type is used to parse and generate URI strings to and from their
@@ -84,34 +89,57 @@ use std::{fmt::Write, string::FromUtf8Error};
 /// [slice]: https://doc.rust-lang.org/std/primitive.slice.html
 /// [`TryFrom::try_from`]: https://doc.rust-lang.org/std/convert/trait.TryFrom.html#tymethod.try_from
 /// [`TryInto::try_into`]: https://doc.rust-lang.org/std/convert/trait.TryInto.html#tymethod.try_into
-#[derive(Clone, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Default)]
 pub struct Uri {
-    scheme: Option<String>,
-    authority: Option<Authority>,
-    path: Vec<Vec<u8>>,
-    query: Option<Vec<u8>>,
-    fragment: Option<Vec<u8>>,
+    scheme: Option<Range<u32>>,
+    authority: AuthorityRanges,
+    path: Option<Range<u32>>,
+    query: Option<Range<u32>>,
+    fragment: Option<Range<u32>>,
     raw: String,
+}
+
+impl Hash for Uri {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
+impl PartialEq for Uri {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
+impl Eq for Uri {}
+impl PartialEq<String> for Uri {
+    fn eq(&self, other: &String) -> bool {
+        self.raw == *other
+    }
+}
+impl PartialEq<Uri> for String {
+    fn eq(&self, other: &Uri) -> bool {
+        *self == other.raw
+    }
 }
 
 impl Uri {
     /// Borrow the authority (if any) of the URI.
     #[must_use = "authority not used"]
-    pub fn authority(&self) -> Option<&Authority> {
-        self.authority.as_ref()
+    pub fn authority(&self) -> Option<Authority> {
+        todo!()
     }
 
     /// Determines if the URI contains a relative path rather than an absolute
     /// path.
     #[must_use]
     pub fn contains_relative_path(&self) -> bool {
-        !Self::is_path_absolute(&self.path)
+        !Self::is_path_absolute(self.path())
     }
 
     /// Borrow the fragment (if any) of the URI.
     #[must_use]
-    pub fn fragment(&self) -> Option<&[u8]> {
-        self.fragment.as_deref()
+    pub fn fragment(&self) -> Option<Vec<u8>> {
+        todo!()
     }
 
     /// Convert the fragment (if any) into a string.
@@ -123,15 +151,16 @@ impl Uri {
     ///
     /// [CannotExpressAsUtf8]: enum.Error.html#variant.CannotExpressAsUtf8
     pub fn fragment_to_string(&self) -> Result<Option<String>, FromUtf8Error> {
-        self.fragment()
-            .map(|fragment| String::from_utf8(fragment.to_vec()).map_err(Into::into))
-            .transpose()
+        todo!()
+        // self.fragment()
+        //     .map(|fragment| String::from_utf8(fragment.to_vec()).map_err(Into::into))
+        //     .transpose()
     }
 
     /// Borrow the host portion of the Authority (if any) of the URI.
     #[must_use]
-    pub fn host(&self) -> Option<&[u8]> {
-        self.authority.as_ref().map(Authority::host)
+    pub fn host(&self) -> Option<Vec<u8>> {
+        self.authority.port.map(|r| self.raw[r])
     }
 
     /// Convert the host portion of the Authority (if any) into a string.
@@ -194,12 +223,17 @@ impl Uri {
         let s = uri_string.as_ref();
         let (scheme, rest) = Self::parse_scheme(s)?;
         let path_end = rest.find(&['?', '#'][..]).unwrap_or(rest.len());
+
         let authority_and_path_string = &rest[0..path_end];
         let query_and_or_fragment = &rest[path_end..];
+
         let (authority, path) =
             Self::split_authority_from_path_and_parse_them(authority_and_path_string)?;
+
         let (fragment, possible_query) = Self::parse_fragment(query_and_or_fragment)?;
+
         let query = Self::parse_query(possible_query)?;
+
         let mut this = Self {
             scheme,
             authority,
@@ -260,12 +294,12 @@ impl Uri {
 
     /// Return a copy of the port (if any) contained in the URI.
     pub fn port(&self) -> Option<u16> {
-        self.authority.as_ref().and_then(Authority::port)
+        self.authority..and_then(Authority::port)
     }
 
     /// Borrow the query (if any) of the URI.
     #[must_use]
-    pub fn query(&self) -> Option<&[u8]> {
+    pub fn query(&self) -> Option<Vec<u8>> {
         self.query.as_deref()
     }
 

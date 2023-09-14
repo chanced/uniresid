@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use super::{
     character_classes::{REG_NAME_NOT_PCT_ENCODED, USER_INFO_NOT_PCT_ENCODED},
     codec::{decode_element, encode_element},
@@ -43,24 +45,20 @@ use super::{
 /// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Authority {
-    user_info: Option<Vec<u8>>,
-    host: Vec<u8>,
-    port: Option<u16>,
+    pub user_info: Option<Vec<u8>>,
+    pub host: Vec<u8>,
+    pub port: Option<u16>,
+}
+
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AuthorityRanges {
+    user_info: Option<Range<u32>>,
+    host: Option<Range<u32>>,
+    port: Option<Range<u32>>,
 }
 
 impl Authority {
-    /// Borrow the host name part of the Authority.
-    #[must_use = "host not used"]
-    pub fn host(&self) -> &[u8] {
-        &self.host
-    }
-
-    /// Borrow the port number part of the Authority.
-    #[must_use = "port not used"]
-    pub fn port(&self) -> Option<u16> {
-        self.port
-    }
-
     /// Change the `user_info` part of the Authority.
     pub fn set_user_info<T>(&mut self, user_info: T)
     where
@@ -69,35 +67,16 @@ impl Authority {
         self.user_info = user_info.into();
     }
 
-    /// Change the host name part of the Authority.
-    pub fn set_host<T>(&mut self, host: T)
-    where
-        T: Into<Vec<u8>>,
-    {
-        self.host = host.into();
-    }
-
-    /// Change the port number part of the Authority.
-    pub fn set_port(&mut self, port: Option<u16>) {
-        self.port = port;
-    }
-
-    /// Borrow the `user_info` part of the Authority.
-    #[must_use = "user_info not used"]
-    pub fn user_info(&self) -> Option<&[u8]> {
-        self.user_info.as_deref()
-    }
-
     /// Interpret the given string as the Authority component of a URI,
     /// separating its various subcomponents, returning an `Authority` value
     /// containing them.
     ///
     /// # Errors
     ///
-    /// There are many ways to screw up the Authority part of URI string, and
-    /// this function will let you know what's up by returning a variant of the
-    /// [`Error`](enum.Error.html) type.
-    pub fn parse<T>(authority_string: T) -> Result<Self, Error>
+    /// Returns an [`Error`] if parsing fails
+    ///
+    ///
+    pub(crate) fn parse<T>(authority_string: T) -> Result<Self, Error>
     where
         T: AsRef<str>,
     {
